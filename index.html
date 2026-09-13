@@ -2,8 +2,8 @@
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>تطبيق الصور والتفاعلات</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>تطبيق التفاعل والصور</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
     body {
@@ -16,7 +16,7 @@
       margin: 0;
       background-color: #151e27;
       color: #ffffff;
-      padding: 20px;
+      padding: 15px;
       box-sizing: border-box;
     }
     .card {
@@ -25,21 +25,24 @@
       border-radius: 16px;
       width: 100%;
       max-width: 380px;
-      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
       text-align: center;
+      box-sizing: border-box;
     }
     video, img {
       width: 100%;
       max-width: 340px;
+      height: auto;
       border-radius: 12px;
       display: none;
-      margin-bottom: 15px;
+      margin: 0 auto 15px auto;
       border: 2px solid #2ea6ff;
+      object-fit: cover;
     }
     .btn {
       width: 100%;
       padding: 14px;
-      font-size: 16px;
+      font-size: 15px;
       border: none;
       border-radius: 10px;
       cursor: pointer;
@@ -48,36 +51,40 @@
       box-sizing: border-box;
       display: block;
     }
-    .btn-cam { background-color: #2ea6ff; color: #fff; }
-    .btn-gallery { background-color: #34c759; color: #fff; text-align: center; }
-    .btn-direct { background-color: #007aff; color: #fff; }
-    .btn-compare { background-color: #ff9500; color: #fff; }
-    .options-group { display: none; margin-top: 15px; }
+    .btn-main { background-color: #007aff; color: #ffffff; }
+    .btn-cam { background-color: #2ea6ff; color: #ffffff; }
+    .btn-gallery { background-color: #34c759; color: #ffffff; text-align: center; }
+    .step-section { display: none; }
     input[type="file"] { display: none; }
-    #status { margin-top: 15px; font-size: 14px; color: #aaa; }
+    #status { margin-top: 15px; font-size: 13px; color: #aaaaaa; }
   </style>
 </head>
 <body>
 
   <div class="card">
-    <h3>اختر أو التقط صورة للمتابعة</h3>
-
-    <video id="video" autoplay playsinline></video>
-    <img id="preview" alt="معاينة الصورة" />
-
-    <div id="sourceControls">
-      <button id="startCamBtn" class="btn btn-cam">📸 فتح الكاميرا والتقاط صورة</button>
-      <label for="galleryInput" class="btn btn-gallery">🖼️ اختيار من معرض الصور</label>
-      <input type="file" id="galleryInput" accept="image/*">
+    <!-- المرحلة 1: اختيار الأمر (ظاهرة أولاً) -->
+    <div id="step1" class="step-section" style="display: block;">
+      <h3 style="margin-top: 0;">اختر الخيار المطلوب</h3>
+      <button id="modeStickerBtn" class="btn btn-main">🎨 عمل ملصق (Sticker)</button>
+      <button id="modeCompareBtn" class="btn btn-main" style="background-color: #ff9500;">🔍 مقارنة بين صورتين</button>
     </div>
 
-    <div id="optionsGroup" class="options-group">
-      <p style="color: #2ea6ff; font-weight: bold;">اختر نوع النشر الإجراء:</p>
-      <button id="sendDirectBtn" class="btn btn-direct">📤 إرسال صورة مباشرة (للبوت )</button>
-      <button id="sendCompareBtn" class="btn btn-compare">🔍 إرسال مع نسبة مقارنة (للبوت )</button>
+    <!-- المرحلة 2: التقاط أو اختيار الصورة -->
+    <div id="step2" class="step-section">
+      <h3 id="step2Title">التقط أو اختر الصورة</h3>
+      
+      <video id="video" autoplay playsinline muted></video>
+      <img id="preview" alt="معاينة الصورة" />
+
+      <div id="captureControls">
+        <button id="startCamBtn" class="btn btn-cam">📸 فتح الكاميرا المباشرة</button>
+        <button id="takeSnapBtn" class="btn btn-cam" style="display:none; background-color: #e63946;">⚡ التقاط الصورة الآن</button>
+        <label for="galleryInput" class="btn btn-gallery">🖼️ اختيار من معرض الصور</label>
+        <input type="file" id="galleryInput" accept="image/*">
+      </div>
     </div>
 
-    <p id="status">يرجى التقاط صورة أو اختيار ملف من المعرض</p>
+    <p id="status">يرجى اختيار أحد الخيارين أعلاه للمتابعة</p>
   </div>
 
   <canvas id="canvas" style="display:none;"></canvas>
@@ -87,33 +94,91 @@
     tg.ready();
     tg.expand();
 
+    // العناصر
+    const step1 = document.getElementById('step1');
+    const step2 = document.getElementById('step2');
+    const step2Title = document.getElementById('step2Title');
     const video = document.getElementById('video');
     const preview = document.getElementById('preview');
     const canvas = document.getElementById('canvas');
+    
+    const modeStickerBtn = document.getElementById('modeStickerBtn');
+    const modeCompareBtn = document.getElementById('modeCompareBtn');
+    
     const startCamBtn = document.getElementById('startCamBtn');
+    const takeSnapBtn = document.getElementById('takeSnapBtn');
     const galleryInput = document.getElementById('galleryInput');
-    const sourceControls = document.getElementById('sourceControls');
-    const optionsGroup = document.getElementById('optionsGroup');
-    const sendDirectBtn = document.getElementById('sendDirectBtn');
-    const sendCompareBtn = document.getElementById('sendCompareBtn');
     const status = document.getElementById('status');
 
-    let preparedBase64 = "";
+    let selectedMode = ""; // "sticker" or "compare"
+    let collectedImages = [];
+    let currentStream = null;
 
+    // --- اختيار الوضع: ملصق ---
+    modeStickerBtn.addEventListener('click', () => {
+      selectedMode = "sticker";
+      step1.style.display = "none";
+      step2.style.display = "block";
+      step2Title.innerText = "اختر صورة لتحويلها إلى ملصق";
+      status.innerText = "التقط صورة أو اختر من المعرض";
+    });
+
+    // --- اختيار الوضع: مقارنة ---
+    modeCompareBtn.addEventListener('click', () => {
+      selectedMode = "compare";
+      step1.style.display = "none";
+      step2.style.display = "block";
+      step2Title.innerText = "اختر الصورة الأولى للمقارنة";
+      status.innerText = "يرجى تحديد الصورة الأولى (1 من 2)";
+    });
+
+    // --- فتح الكاميرا ---
     startCamBtn.addEventListener('click', async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
-        video.srcObject = stream;
+        currentStream = await navigator.mediaDevices.getUserMedia({ 
+          video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } } 
+        });
+        video.srcObject = currentStream;
         video.style.display = 'block';
         preview.style.display = 'none';
-        sourceControls.style.display = 'none';
-        optionsGroup.style.display = 'block';
-        status.innerText = "تم فتح الكاميرا! اختر الإجراء أدناه.";
+        startCamBtn.style.display = 'none';
+        takeSnapBtn.style.display = 'block';
+        status.innerText = "وجه الكاميرا واضغط التقاط.";
       } catch (err) {
         alert("تعذر الوصول للكاميرا: " + err);
       }
     });
 
+    // --- التقاط من الكاميرا ---
+    takeSnapBtn.addEventListener('click', () => {
+      const w = video.videoWidth || 640;
+      const h = video.videoHeight || 480;
+      const maxDim = 600;
+      let targetW = w, targetH = h;
+
+      if (w > h) {
+        if (w > maxDim) { targetH = Math.round(h * (maxDim / w)); targetW = maxDim; }
+      } else {
+        if (h > maxDim) { targetW = Math.round(w * (maxDim / h)); targetH = maxDim; }
+      }
+
+      canvas.width = targetW;
+      canvas.height = targetH;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, targetW, targetH);
+
+      if (currentStream) {
+        currentStream.getTracks().forEach(track => track.stop());
+      }
+      video.style.display = 'none';
+      takeSnapBtn.style.display = 'none';
+      startCamBtn.style.display = 'block';
+
+      const base64Img = canvas.toDataURL('image/jpeg', 0.5);
+      handleImageCaptured(base64Img);
+    });
+
+    // --- اختيار من المعرض ---
     galleryInput.addEventListener('change', (e) => {
       const file = e.target.files[0];
       if (file) {
@@ -124,22 +189,18 @@
             const maxDim = 600;
             let w = img.width, h = img.height;
             if (w > h) {
-              if (w > maxDim) { h *= maxDim / w; w = maxDim; }
+              if (w > maxDim) { h = Math.round(h * (maxDim / w)); w = maxDim; }
             } else {
-              if (h > maxDim) { w *= maxDim / h; h = maxDim; }
+              if (h > maxDim) { w = Math.round(w * (maxDim / h)); h = maxDim; }
             }
+
             canvas.width = w;
             canvas.height = h;
             const ctx = canvas.getContext('2d');
             ctx.drawImage(img, 0, 0, w, h);
-            preparedBase64 = canvas.toDataURL('image/jpeg', 0.6);
-
-            preview.src = preparedBase64;
-            preview.style.display = 'block';
-            video.style.display = 'none';
-            sourceControls.style.display = 'none';
-            optionsGroup.style.display = 'block';
-            status.innerText = "تم تجهيز الصورة بنجاح! اختر الإجراء المطلوب.";
+            
+            const base64Img = canvas.toDataURL('image/jpeg', 0.5);
+            handleImageCaptured(base64Img);
           };
           img.src = event.target.result;
         };
@@ -147,46 +208,35 @@
       }
     });
 
-    function getFinalImage() {
-      if (video.style.display === 'block') {
-        const maxDim = 600;
-        let w = video.videoWidth || 480;
-        let h = video.videoHeight || 640;
-        if (w > h) {
-          if (w > maxDim) { h *= maxDim / w; w = maxDim; }
-        } else {
-          if (h > maxDim) { w *= maxDim / h; h = maxDim; }
+    // --- معالجة التقاط/تحديد الصورة بناءً على الوضع ---
+    function handleImageCaptured(base64Img) {
+      collectedImages.push(base64Img);
+
+      if (selectedMode === "sticker") {
+        status.innerText = "جاري النشر في القناة وإرسال الملصق...";
+        tg.sendData(JSON.stringify({
+          action: "sticker",
+          images: collectedImages
+        }));
+        tg.close();
+      } 
+      else if (selectedMode === "compare") {
+        if (collectedImages.length === 1) {
+          // تم جمع الصورة الأولى، يطلب الصورة الثانية
+          step2Title.innerText = "اختر الصورة الثانية للمقارنة";
+          status.innerText = "تم اختيار الأولى بنجاح! التقط/اختر الصورة الثانية (2 من 2)";
+          galleryInput.value = ""; // إعادة ضبط حقل اختيار الملف
+        } else if (collectedImages.length === 2) {
+          // تم جمع الصورتين
+          status.innerText = "جاري النشر وحساب نسبة المقارنة...";
+          tg.sendData(JSON.stringify({
+            action: "compare",
+            images: collectedImages
+          }));
+          tg.close();
         }
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(video, 0, 0, w, h);
-        return canvas.toDataURL('image/jpeg', 0.6);
       }
-      return preparedBase64;
     }
-
-    sendDirectBtn.addEventListener('click', () => {
-      const imgData = getFinalImage();
-      if (imgData) {
-        status.innerText = "جاري الإرسال للبوت ...";
-        tg.sendData(JSON.stringify({ action: "photo_direct", image: imgData }));
-        tg.close();
-      } else {
-        alert("يرجى التقاط أو اختيار صورة أولاً.");
-      }
-    });
-
-    sendCompareBtn.addEventListener('click', () => {
-      const imgData = getFinalImage();
-      if (imgData) {
-        status.innerText = "جاري الحساب والنشر في البوت ...";
-        tg.sendData(JSON.stringify({ action: "photo_compare", image: imgData }));
-        tg.close();
-      } else {
-        alert("يرجى التقاط أو اختيار صورة أولاً.");
-      }
-    });
   </script>
 </body>
 </html>

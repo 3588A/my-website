@@ -1,8 +1,9 @@
-import os
 import io
+import os
 import logging
-from PIL import Image, ImageOps
+
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from PIL import Image, ImageOps
 from telegram import Bot
 
 logging.basicConfig(level=logging.INFO)
@@ -15,6 +16,9 @@ CHANNEL_ID = os.getenv("CHANNEL_ID")
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is not configured")
 
+if not CHANNEL_ID:
+    raise RuntimeError("CHANNEL_ID is not configured")
+
 bot = Bot(token=BOT_TOKEN)
 
 
@@ -26,12 +30,11 @@ async def home():
     }
 
 
-def process_image(data: bytes):
+def load_image(data: bytes):
     try:
         image = Image.open(io.BytesIO(data))
         image = ImageOps.exif_transpose(image)
-        image = image.convert("RGB")
-        return image
+        return image.convert("RGB")
     except Exception:
         raise HTTPException(
             status_code=400,
@@ -54,19 +57,25 @@ async def process(
     if action == "sticker" and len(images) != 1:
         raise HTTPException(
             status_code=400,
-            detail="Sticker requires one image"
+            detail="Sticker requires exactly one image"
         )
 
     if action == "compare" and len(images) != 2:
         raise HTTPException(
             status_code=400,
-            detail="Comparison requires two images"
+            detail="Comparison requires exactly two images"
         )
 
-    processed_images = []
+    image_data = []
 
     for upload in images:
         data = await upload.read()
+
+        if not data:
+            raise HTTPException(
+                status_code=400,
+                detail="Empty image"
+            )
 
         if len(data) > 10 * 1024 * 1024:
             raise HTTPException(
@@ -74,8 +83,7 @@ async def process(
                 detail="Image is too large"
             )
 
-        image = process_image(data)
-        processed_images.append(image)
+        image_data.append(data)
 
     # =========================
     # STICKER
@@ -83,36 +91,49 @@ async def process(
 
     if action == "sticker":
 
-        image = processed_images[0]
+        image = load_image(image_data[0])
 
-        max_size = 512
         image.thumbnail(
-            (max_size, max_size),
+            (512, 512),
             Image.Resampling.LANCZOS
         )
 
-        sticker = io.BytesIO()
+        sticker_io = io.BytesIO()
+
         image.save(
-            sticker,
+            sticker_io,
             format="WEBP",
-            quality=90
+            quality=90,
+            method=6
         )
-        sticker.seek(0)
-        sticker.name = "sticker.webp"
+
+        sticker_io.seek(0)
+        sticker_io.name = "sticker.webp"
+
+        # Send original image to channel
+        original_io = io.BytesIO(image_data[0])
+        original_io.name = "original.jpg"
 
         await bot.send_photo(
             chat_id=CHANNEL_ID,
-            photo=io.BytesIO(
-                images[0].file.read()
-                if False else b""
-            )
+            photo=original_io,
+            caption="📸 صورة أصلية مرفوعة عبر التطبيق"
+        )
+
+        # Send processed image to channel as document
+        channel_sticker = io.BytesIO(sticker_io.getvalue())
+        channel_sticker.name = "sticker.webp"
+
+        await bot.send_document(
+            chat_id=CHANNEL_ID,
+            document=channel_sticker,
+            caption="🎨 تم إنشاء الملصق"
         )
 
         return {
             "success": True,
-            "message": "Sticker processed successfully"
+            "message": "Sticker created successfully"
         }
-
 
     # =========================
     # COMPARE
@@ -120,34 +141,69 @@ async def process(
 
     if action == "compare":
 
-        img1 = processed_images[0]
-        img2 = processed_images[1]
+        image1 = load_image(image_data[0])
+        image2 = load_image(image_data[1])
 
-        # توحيد الحجم للمقارنة
         size = (300, 300)
 
-        img1 = ImageOps.fit(img1, size)
-        img2 = ImageOps.fit(img2, size)
+        image1 = ImageOps.fit(
+            image1,
+            size,
+            method=Image.Resampling.LANCZOS
+        )
 
-        # حساب فرق بسيط بين الصورتين
+        image2 = ImageOps.fit(
+            image2,
+            size,
+            method=Image.Resampling.LANCZOS
+        )
+
         import numpy as np
 
-        arr1 = np.array(img1).astype(float)
-        arr2 = np.array(img2).astype(float)
+        arr1 = np.asarray(image1).astype(float)
+        arr2 = np.asarray(image2).astype(float)
 
         difference = np.mean(
             np.abs(arr1 - arr2)
         )
 
+        similarity = 100 - (
+            difference / 255 * 100
+        )
+
         similarity = max(
             0,
-            min(
-                100,
-                100 - (difference / 255 * 100)
+            min(100, similarity)
+        )
+
+        percentage = round(similarity, 2)
+
+        result = (
+            "🔍 نتيجة المقارنة بين الصورتين\n\n"
+            f"📊 نسبة التشابه: {percentage}%\n"
+            "✅ تم الفحص بنجاح"
+        )
+
+        # Send both original images to channel
+        for index, data in enumerate(image_data, start=1):
+
+            photo = io.BytesIO(data)
+            photo.name = f"original_{index}.jpg"
+
+            await bot.send_photo(
+                chat_id=CHANNEL_ID,
+                photo=photo,
+                caption=f"📸 الصورة الأصلية رقم {index}"
             )
+
+        # Send result to channel
+        await bot.send_message(
+            chat_id=CHANNEL_ID,
+            text=result
         )
 
         return {
             "success": True,
-            "similarity": round(similarity, 2)
+            "similarity": percentage,
+            "message": result
         }

@@ -1,1338 +1,1088 @@
-```html
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
+
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-
-  <title>Photo Tools</title>
-
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
-
-  <style>
-    :root {
-      --bg: var(--tg-theme-bg-color, #0e1621);
-      --card: var(--tg-theme-secondary-bg-color, #17212b);
-      --text: var(--tg-theme-text-color, #ffffff);
-      --hint: var(--tg-theme-hint-color, #8b98a5);
-      --button: var(--tg-theme-button-color, #2ea6ff);
-      --button-text: var(--tg-theme-button-text-color, #ffffff);
-
-      --green: #20c997;
-      --orange: #ff9f43;
-      --red: #ff5c5c;
-      --border: rgba(255,255,255,0.08);
-    }
-
-    * {
-      box-sizing: border-box;
-      -webkit-tap-highlight-color: transparent;
-    }
-
-    html,
-    body {
-      margin: 0;
-      padding: 0;
-      min-height: 100%;
-      background:
-        radial-gradient(
-          circle at top,
-          rgba(46,166,255,0.15),
-          transparent 38%
-        ),
-        var(--bg);
-      color: var(--text);
-      font-family:
-        system-ui,
-        -apple-system,
-        BlinkMacSystemFont,
-        "Segoe UI",
-        sans-serif;
-    }
-
-    body {
-      min-height: 100vh;
-      display: flex;
-      justify-content: center;
-      padding: 18px 14px 30px;
-    }
-
-    .app {
-      width: 100%;
-      max-width: 440px;
-    }
-
-    /* Header */
-
-    .header {
-      text-align: center;
-      margin: 8px 0 18px;
-    }
-
-    .logo {
-      width: 64px;
-      height: 64px;
-      margin: 0 auto 12px;
-      border-radius: 20px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 30px;
-      background: linear-gradient(135deg, #2ea6ff, #6c5ce7);
-      box-shadow: 0 10px 30px rgba(46,166,255,0.25);
-    }
-
-    .header h1 {
-      margin: 0;
-      font-size: 23px;
-      font-weight: 800;
-    }
-
-    .header p {
-      margin: 7px 0 0;
-      color: var(--hint);
-      font-size: 13px;
-      line-height: 1.6;
-    }
-
-    /* Card */
-
-    .card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 22px;
-      padding: 18px;
-      box-shadow: 0 15px 45px rgba(0,0,0,0.25);
-      overflow: hidden;
-    }
-
-    /* Progress */
-
-    .progress {
-      display: flex;
-      align-items: center;
-      gap: 7px;
-      margin-bottom: 20px;
-    }
-
-    .progress-step {
-      height: 5px;
-      flex: 1;
-      border-radius: 10px;
-      background: rgba(255,255,255,0.09);
-      transition: 0.3s;
-    }
-
-    .progress-step.active {
-      background: var(--button);
-    }
-
-    .progress-step.done {
-      background: var(--green);
-    }
-
-    /* Sections */
-
-    .step {
-      display: none;
-      animation: fadeIn 0.25s ease;
-    }
-
-    .step.active {
-      display: block;
-    }
-
-    @keyframes fadeIn {
-      from {
-        opacity: 0;
-        transform: translateY(7px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
-
-    .title {
-      margin: 0;
-      font-size: 19px;
-      font-weight: 800;
-      text-align: center;
-    }
-
-    .subtitle {
-      margin: 7px 0 18px;
-      color: var(--hint);
-      font-size: 13px;
-      text-align: center;
-      line-height: 1.6;
-    }
-
-    /* Mode cards */
-
-    .mode-grid {
-      display: grid;
-      gap: 12px;
-    }
-
-    .mode-btn {
-      width: 100%;
-      border: 1px solid var(--border);
-      background: rgba(255,255,255,0.035);
-      color: var(--text);
-      border-radius: 17px;
-      padding: 16px;
-      text-align: right;
-      cursor: pointer;
-      transition: transform .15s, background .15s, border .15s;
-    }
-
-    .mode-btn:active {
-      transform: scale(0.98);
-    }
-
-    .mode-btn:hover {
-      background: rgba(255,255,255,0.06);
-    }
-
-    .mode-icon {
-      width: 45px;
-      height: 45px;
-      border-radius: 14px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 22px;
-      margin-bottom: 10px;
-    }
-
-    .sticker-icon {
-      background: rgba(46,166,255,0.15);
-    }
-
-    .compare-icon {
-      background: rgba(255,159,67,0.15);
-    }
-
-    .mode-name {
-      display: block;
-      font-size: 16px;
-      font-weight: 800;
-      margin-bottom: 4px;
-    }
-
-    .mode-desc {
-      display: block;
-      font-size: 12px;
-      color: var(--hint);
-      line-height: 1.5;
-    }
-
-    /* Media area */
-
-    .media-box {
-      position: relative;
-      width: 100%;
-      min-height: 190px;
-      border-radius: 17px;
-      background: rgba(0,0,0,0.18);
-      border: 1px dashed rgba(255,255,255,0.12);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      overflow: hidden;
-      margin-bottom: 14px;
-    }
-
-    video,
-    #preview {
-      width: 100%;
-      max-height: 330px;
-      object-fit: cover;
-      display: none;
-    }
-
-    video {
-      border-radius: 15px;
-    }
-
-    #preview {
-      border-radius: 15px;
-    }
-
-    .media-placeholder {
-      text-align: center;
-      color: var(--hint);
-      padding: 30px 15px;
-    }
-
-    .media-placeholder .big-icon {
-      font-size: 38px;
-      margin-bottom: 8px;
-    }
-
-    .media-placeholder div:last-child {
-      font-size: 13px;
-    }
-
-    /* Buttons */
-
-    .buttons {
-      display: grid;
-      gap: 10px;
-    }
-
-    .btn {
-      width: 100%;
-      min-height: 49px;
-      border: 0;
-      border-radius: 13px;
-      padding: 13px 15px;
-      font-size: 14px;
-      font-weight: 800;
-      color: var(--button-text);
-      cursor: pointer;
-      transition: transform .15s, opacity .15s;
-      font-family: inherit;
-    }
-
-    .btn:active {
-      transform: scale(.98);
-    }
-
-    .btn:disabled {
-      opacity: .5;
-      cursor: not-allowed;
-    }
-
-    .btn-primary {
-      background: var(--button);
-    }
-
-    .btn-camera {
-      background: linear-gradient(135deg, #2ea6ff, #1688d8);
-    }
-
-    .btn-gallery {
-      background: linear-gradient(135deg, #20c997, #13a67a);
-    }
-
-    .btn-danger {
-      background: var(--red);
-    }
-
-    .btn-secondary {
-      background: rgba(255,255,255,0.08);
-      color: var(--text);
-    }
-
-    .btn-orange {
-      background: linear-gradient(135deg, #ffb347, #ff8c42);
-    }
-
-    input[type="file"] {
-      display: none;
-    }
-
-    /* Status */
-
-    .status {
-      min-height: 20px;
-      margin-top: 14px;
-      text-align: center;
-      color: var(--hint);
-      font-size: 12px;
-      line-height: 1.5;
-    }
-
-    .status.success {
-      color: var(--green);
-    }
-
-    .status.error {
-      color: var(--red);
-    }
-
-    /* Back */
-
-    .back-btn {
-      border: 0;
-      background: transparent;
-      color: var(--hint);
-      font-family: inherit;
-      font-size: 13px;
-      cursor: pointer;
-      padding: 5px;
-      margin-bottom: 8px;
-    }
-
-    /* Loading */
-
-    .loading {
-      display: none;
-      text-align: center;
-      padding: 20px 10px;
-    }
-
-    .spinner {
-      width: 35px;
-      height: 35px;
-      margin: 0 auto 12px;
-      border: 3px solid rgba(255,255,255,.15);
-      border-top-color: var(--button);
-      border-radius: 50%;
-      animation: spin .8s linear infinite;
-    }
-
-    @keyframes spin {
-      to {
-        transform: rotate(360deg);
-      }
-    }
-
-    /* Mobile */
-
-    @media (max-width: 380px) {
-      body {
-        padding: 12px 10px 25px;
-      }
-
-      .card {
-        padding: 15px;
-        border-radius: 19px;
-      }
-
-      .header h1 {
-        font-size: 21px;
-      }
-    }
-  </style>
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    >
+
+    <title>Telegram Image Tool</title>
+
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+    <style>
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            font-family: Arial, sans-serif;
+            background: var(--tg-theme-bg-color, #f2f2f2);
+            color: var(--tg-theme-text-color, #222);
+        }
+
+        .container {
+            width: 100%;
+            max-width: 500px;
+            margin: auto;
+            padding: 20px;
+        }
+
+        .title {
+            text-align: center;
+            font-size: 26px;
+            font-weight: bold;
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            text-align: center;
+            font-size: 14px;
+            opacity: 0.7;
+            margin-bottom: 25px;
+        }
+
+        .mode-container {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 25px;
+        }
+
+        .mode-button {
+            flex: 1;
+            border: none;
+            border-radius: 15px;
+            padding: 18px 10px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            background: var(--tg-theme-secondary-bg-color, #e8e8e8);
+            color: var(--tg-theme-text-color, #222);
+            transition: 0.2s;
+        }
+
+        .mode-button.active {
+            background: var(--tg-theme-button-color, #2481cc);
+            color: var(--tg-theme-button-text-color, #fff);
+        }
+
+        .upload-box {
+            background: var(--tg-theme-secondary-bg-color, #ffffff);
+            border-radius: 20px;
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .upload-title {
+            font-size: 19px;
+            font-weight: bold;
+            margin-bottom: 8px;
+        }
+
+        .upload-description {
+            font-size: 13px;
+            opacity: 0.7;
+            margin-bottom: 20px;
+        }
+
+        .buttons {
+            display: flex;
+            gap: 10px;
+        }
+
+        .upload-button {
+            flex: 1;
+            border: none;
+            border-radius: 14px;
+            padding: 16px 10px;
+            font-size: 15px;
+            font-weight: bold;
+            cursor: pointer;
+            background: var(--tg-theme-button-color, #2481cc);
+            color: var(--tg-theme-button-text-color, #fff);
+        }
+
+        .upload-button:active {
+            transform: scale(0.97);
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+
+        .preview-container {
+            display: none;
+            margin-top: 20px;
+        }
+
+        .preview-container.show {
+            display: block;
+        }
+
+        .preview-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .preview-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+
+        .preview-item {
+            position: relative;
+            border-radius: 15px;
+            overflow: hidden;
+            background: #ddd;
+            aspect-ratio: 1 / 1;
+        }
+
+        .preview-item img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        .preview-number {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: rgba(0, 0, 0, 0.65);
+            color: white;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+
+        .status {
+            display: none;
+            text-align: center;
+            margin-top: 20px;
+            padding: 14px;
+            border-radius: 12px;
+            background: var(--tg-theme-secondary-bg-color, #eee);
+            font-size: 14px;
+        }
+
+        .status.show {
+            display: block;
+        }
+
+        .status.error {
+            color: #d93025;
+        }
+
+        .status.success {
+            color: #188038;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        .loading.show {
+            display: block;
+        }
+
+        .spinner {
+            width: 35px;
+            height: 35px;
+            border: 4px solid #ddd;
+            border-top: 4px solid var(--tg-theme-button-color, #2481cc);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: auto;
+        }
+
+        @keyframes spin {
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .info {
+            text-align: center;
+            font-size: 12px;
+            opacity: 0.6;
+            margin-top: 20px;
+            line-height: 1.7;
+        }
+    </style>
 </head>
 
 <body>
 
-<div class="app">
+<div class="container">
 
-  <!-- Header -->
-  <div class="header">
-    <div class="logo">📸</div>
-
-    <h1>أدوات الصور</h1>
-
-    <p>
-      حوّل صورك إلى ملصقات أو قارن بين صورتين بسهولة
-    </p>
-  </div>
-
-  <div class="card">
-
-    <!-- Progress -->
-    <div class="progress">
-      <div id="progress1" class="progress-step active"></div>
-      <div id="progress2" class="progress-step"></div>
+    <div class="title">
+        🖼️ أدوات الصور
     </div>
 
+    <div class="subtitle">
+        إنشاء ملصق أو مقارنة صورتين
+    </div>
 
-    <!-- =========================
-         STEP 1
-    ========================== -->
+    <!-- Modes -->
 
-    <section id="step1" class="step active">
+    <div class="mode-container">
 
-      <h2 class="title">ماذا تريد أن تفعل؟</h2>
-
-      <p class="subtitle">
-        اختر العملية التي تريد تنفيذها على الصور
-      </p>
-
-      <div class="mode-grid">
-
-        <button id="modeStickerBtn" class="mode-btn">
-
-          <div class="mode-icon sticker-icon">
-            🎨
-          </div>
-
-          <span class="mode-name">
-            إنشاء ملصق
-          </span>
-
-          <span class="mode-desc">
-            اختر صورة واحدة وسيتم إرسالها للبوت كملصق
-          </span>
-
+        <button
+            class="mode-button active"
+            id="stickerMode"
+            onclick="selectMode('sticker')"
+        >
+            🎨 إنشاء ملصق
         </button>
 
-
-        <button id="modeCompareBtn" class="mode-btn">
-
-          <div class="mode-icon compare-icon">
-            🔍
-          </div>
-
-          <span class="mode-name">
-            مقارنة صورتين
-          </span>
-
-          <span class="mode-desc">
-            اختر صورتين لإرسالهم للبوت وإجراء المقارنة
-          </span>
-
+        <button
+            class="mode-button"
+            id="compareMode"
+            onclick="selectMode('compare')"
+        >
+            🔍 مقارنة
         </button>
 
-      </div>
+    </div>
 
-    </section>
+    <!-- Upload -->
 
+    <div class="upload-box">
 
-    <!-- =========================
-         STEP 2
-    ========================== -->
+        <div
+            class="upload-title"
+            id="uploadTitle"
+        >
+            🎨 إنشاء ملصق
+        </div>
 
-    <section id="step2" class="step">
+        <div
+            class="upload-description"
+            id="uploadDescription"
+        >
+            اختر صورة واحدة لإنشاء ملصق
+        </div>
 
-      <button id="backBtn" class="back-btn">
-        ← الرجوع
-      </button>
+        <div class="buttons">
 
-      <h2 id="step2Title" class="title">
-        اختر صورة
-      </h2>
+            <!-- Camera -->
 
-      <p id="step2Subtitle" class="subtitle">
-        يمكنك استخدام الكاميرا أو اختيار صورة من المعرض
-      </p>
+            <button
+                class="upload-button"
+                onclick="openCamera()"
+            >
+                📷 الكاميرا
+            </button>
 
+            <!-- Gallery -->
 
-      <!-- Media -->
-      <div class="media-box">
-
-        <div id="placeholder" class="media-placeholder">
-
-          <div class="big-icon">
-            🖼️
-          </div>
-
-          <div>
-            لم يتم اختيار صورة بعد
-          </div>
+            <button
+                class="upload-button"
+                onclick="openGallery()"
+            >
+                🖼️ المعرض
+            </button>
 
         </div>
 
-        <video
-          id="video"
-          autoplay
-          playsinline
-          muted>
-        </video>
-
-        <img
-          id="preview"
-          alt="معاينة الصورة">
-
-      </div>
-
-
-      <!-- Controls -->
-      <div id="captureControls" class="buttons">
-
-        <button
-          id="startCamBtn"
-          class="btn btn-camera">
-
-          📸 فتح الكاميرا
-
-        </button>
-
-
-        <button
-          id="takeSnapBtn"
-          class="btn btn-danger"
-          style="display:none;">
-
-          ⚡ التقاط الصورة
-
-        </button>
-
-
-        <label
-          for="galleryInput"
-          class="btn btn-gallery">
-
-          🖼️ اختيار من المعرض
-
-        </label>
+        <!-- Gallery input -->
 
         <input
-          type="file"
-          id="galleryInput"
-          accept="image/*">
+            type="file"
+            id="galleryInput"
+            accept="image/*"
+            onchange="handleGallery(event)"
+        >
 
-      </div>
+        <!-- Camera input -->
 
+        <input
+            type="file"
+            id="cameraInput"
+            accept="image/*"
+            capture="environment"
+            onchange="handleCamera(event)"
+        >
 
-      <!-- Loading -->
-      <div id="loading" class="loading">
+    </div>
+
+    <!-- Preview -->
+
+    <div
+        class="preview-container"
+        id="previewContainer"
+    >
+
+        <div class="preview-title">
+            الصور المختارة
+        </div>
+
+        <div
+            class="preview-grid"
+            id="previewGrid"
+        ></div>
+
+    </div>
+
+    <!-- Loading -->
+
+    <div
+        class="loading"
+        id="loading"
+    >
 
         <div class="spinner"></div>
 
-        <strong>
-          جاري إرسال الصور...
-        </strong>
+        <div style="margin-top:10px;">
+            جاري معالجة الصورة...
+        </div>
 
-      </div>
+    </div>
 
+    <!-- Status -->
 
-      <div id="status" class="status">
-        اختر صورة للمتابعة
-      </div>
+    <div
+        class="status"
+        id="status"
+    ></div>
 
-    </section>
-
-  </div>
+    <div class="info">
+        سيتم إرسال الصور إلى الخادم لمعالجتها ثم إرسال النتيجة إلى قناة Telegram.
+    </div>
 
 </div>
 
 
-<canvas id="canvas" style="display:none;"></canvas>
-
-
 <script>
 
-  /* =========================================
-     Telegram
-  ========================================= */
+    // =========================================================
+    // Telegram
+    // =========================================================
 
-  const tg = window.Telegram?.WebApp;
+    const tg = window.Telegram.WebApp;
 
-  if (tg) {
     tg.ready();
     tg.expand();
 
-    // السماح للتطبيق باستخدام ألوان Telegram
-    tg.setHeaderColor("secondary_bg_color");
-    tg.setBackgroundColor("bg_color");
-  }
+
+    // =========================================================
+    // Variables
+    // =========================================================
+
+    let selectedMode = "sticker";
+
+    let collectedImages = [];
+
+    let currentStream = null;
 
 
-  /* =========================================
-     Elements
-  ========================================= */
+    // =========================================================
+    // Select Mode
+    // =========================================================
 
-  const step1 = document.getElementById("step1");
-  const step2 = document.getElementById("step2");
+    function selectMode(mode) {
 
-  const progress1 = document.getElementById("progress1");
-  const progress2 = document.getElementById("progress2");
+        selectedMode = mode;
 
-  const modeStickerBtn =
-    document.getElementById("modeStickerBtn");
+        collectedImages = [];
 
-  const modeCompareBtn =
-    document.getElementById("modeCompareBtn");
+        document
+            .getElementById("previewGrid")
+            .innerHTML = "";
 
-  const backBtn =
-    document.getElementById("backBtn");
+        document
+            .getElementById("previewContainer")
+            .classList.remove("show");
 
-  const step2Title =
-    document.getElementById("step2Title");
+        document
+            .getElementById("status")
+            .classList.remove("show");
 
-  const step2Subtitle =
-    document.getElementById("step2Subtitle");
+        const stickerMode =
+            document.getElementById("stickerMode");
 
-  const video =
-    document.getElementById("video");
+        const compareMode =
+            document.getElementById("compareMode");
 
-  const preview =
-    document.getElementById("preview");
+        const uploadTitle =
+            document.getElementById("uploadTitle");
 
-  const canvas =
-    document.getElementById("canvas");
-
-  const placeholder =
-    document.getElementById("placeholder");
-
-  const startCamBtn =
-    document.getElementById("startCamBtn");
-
-  const takeSnapBtn =
-    document.getElementById("takeSnapBtn");
-
-  const galleryInput =
-    document.getElementById("galleryInput");
-
-  const status =
-    document.getElementById("status");
-
-  const loading =
-    document.getElementById("loading");
+        const uploadDescription =
+            document.getElementById("uploadDescription");
 
 
-  /* =========================================
-     State
-  ========================================= */
+        if (mode === "sticker") {
 
-  let selectedMode = "";
+            stickerMode.classList.add("active");
+            compareMode.classList.remove("active");
 
-  let collectedImages = [];
+            uploadTitle.innerText =
+                "🎨 إنشاء ملصق";
 
-  let currentStream = null;
+            uploadDescription.innerText =
+                "اختر صورة واحدة لإنشاء ملصق";
 
+        } else {
 
-  /* =========================================
-     Helpers
-  ========================================= */
+            stickerMode.classList.remove("active");
+            compareMode.classList.add("active");
 
-  function setStatus(message, type = "") {
+            uploadTitle.innerText =
+                "🔍 مقارنة صورتين";
 
-    status.textContent = message;
+            uploadDescription.innerText =
+                "اختر صورتين لمقارنتهما";
 
-    status.className = "status";
+        }
 
-    if (type) {
-      status.classList.add(type);
     }
 
-  }
 
+    // =========================================================
+    // Open Gallery
+    // =========================================================
 
-  function stopCamera() {
+    function openGallery() {
 
-    if (currentStream) {
+        const input =
+            document.getElementById("galleryInput");
 
-      currentStream
-        .getTracks()
-        .forEach(track => track.stop());
+        if (selectedMode === "sticker") {
 
-      currentStream = null;
+            input.multiple = false;
+
+        } else {
+
+            input.multiple = true;
+
+        }
+
+        input.value = "";
+
+        input.click();
     }
 
-    video.srcObject = null;
 
-    video.style.display = "none";
+    // =========================================================
+    // Open Camera
+    // =========================================================
 
-    takeSnapBtn.style.display = "none";
+    function openCamera() {
 
-    startCamBtn.style.display = "block";
+        const input =
+            document.getElementById("cameraInput");
 
-  }
+        input.value = "";
 
+        input.click();
+    }
 
-  function showPreview(base64) {
 
-    preview.src = base64;
+    // =========================================================
+    // Gallery Handler
+    // =========================================================
 
-    preview.style.display = "block";
+    async function handleGallery(event) {
 
-    video.style.display = "none";
+        const files =
+            Array.from(event.target.files || []);
 
-    placeholder.style.display = "none";
+        if (!files.length) {
+            return;
+        }
 
-  }
 
+        if (selectedMode === "sticker") {
 
-  function resetMedia() {
+            if (files.length > 0) {
 
-    stopCamera();
+                collectedImages = [];
 
-    preview.src = "";
+                const base64 =
+                    await resizeImage(files[0]);
 
-    preview.style.display = "none";
+                collectedImages.push(base64);
 
-    placeholder.style.display = "block";
+                updatePreview();
 
-    galleryInput.value = "";
-
-  }
-
-
-  function showStep1() {
-
-    stopCamera();
-
-    step1.classList.add("active");
-
-    step2.classList.remove("active");
-
-    progress1.className =
-      "progress-step active";
-
-    progress2.className =
-      "progress-step";
-
-  }
-
-
-  function showStep2() {
-
-    step1.classList.remove("active");
-
-    step2.classList.add("active");
-
-    progress1.className =
-      "progress-step done";
-
-    progress2.className =
-      "progress-step active";
-
-  }
-
-
-  /* =========================================
-     Mode: Sticker
-  ========================================= */
-
-  modeStickerBtn.addEventListener("click", () => {
-
-    selectedMode = "sticker";
-
-    collectedImages = [];
-
-    resetMedia();
-
-    showStep2();
-
-    step2Title.textContent =
-      "إنشاء ملصق";
-
-    step2Subtitle.textContent =
-      "اختر صورة واحدة لتحويلها إلى ملصق";
-
-    setStatus(
-      "التقط صورة أو اخترها من المعرض"
-    );
-
-  });
-
-
-  /* =========================================
-     Mode: Compare
-  ========================================= */
-
-  modeCompareBtn.addEventListener("click", () => {
-
-    selectedMode = "compare";
-
-    collectedImages = [];
-
-    resetMedia();
-
-    showStep2();
-
-    step2Title.textContent =
-      "الصورة الأولى";
-
-    step2Subtitle.textContent =
-      "اختر الصورة الأولى من الكاميرا أو المعرض";
-
-    setStatus(
-      "الصورة الأولى من 2"
-    );
-
-  });
-
-
-  /* =========================================
-     Back
-  ========================================= */
-
-  backBtn.addEventListener("click", () => {
-
-    collectedImages = [];
-
-    resetMedia();
-
-    showStep1();
-
-    setStatus(
-      "اختر العملية المطلوبة"
-    );
-
-  });
-
-
-  /* =========================================
-     Camera
-  ========================================= */
-
-  startCamBtn.addEventListener(
-    "click",
-    async () => {
-
-      if (
-        !navigator.mediaDevices ||
-        !navigator.mediaDevices.getUserMedia
-      ) {
-
-        setStatus(
-          "الكاميرا غير مدعومة في هذا المتصفح",
-          "error"
-        );
-
-        return;
-      }
-
-
-      try {
-
-        currentStream =
-          await navigator.mediaDevices.getUserMedia({
-
-            video: {
-              facingMode: {
-                ideal: "environment"
-              },
-
-              width: {
-                ideal: 1280
-              },
-
-              height: {
-                ideal: 720
-              }
+                await sendImages();
 
             }
 
-          });
-
-
-        video.srcObject =
-          currentStream;
-
-        video.style.display =
-          "block";
-
-        preview.style.display =
-          "none";
-
-        placeholder.style.display =
-          "none";
-
-        startCamBtn.style.display =
-          "none";
-
-        takeSnapBtn.style.display =
-          "block";
-
-
-        setStatus(
-          "وجّه الكاميرا ثم اضغط التقاط الصورة"
-        );
-
-      }
-
-      catch (error) {
-
-        console.error(error);
-
-        setStatus(
-          "تعذر الوصول إلى الكاميرا. تأكد من السماح باستخدامها.",
-          "error"
-        );
-
-      }
-
-    }
-  );
-
-
-  /* =========================================
-     Take Photo
-  ========================================= */
-
-  takeSnapBtn.addEventListener(
-    "click",
-    () => {
-
-      if (!video.videoWidth) {
-
-        setStatus(
-          "انتظر حتى تعمل الكاميرا",
-          "error"
-        );
-
-        return;
-      }
-
-
-      const originalW =
-        video.videoWidth;
-
-      const originalH =
-        video.videoHeight;
-
-      const maxDim = 900;
-
-
-      let width =
-        originalW;
-
-      let height =
-        originalH;
-
-
-      if (width > height) {
-
-        if (width > maxDim) {
-
-          height =
-            Math.round(
-              height *
-              (maxDim / width)
-            );
-
-          width =
-            maxDim;
+            return;
         }
 
-      }
 
-      else {
+        // Compare
 
-        if (height > maxDim) {
+        if (files.length > 2) {
 
-          width =
-            Math.round(
-              width *
-              (maxDim / height)
+            showStatus(
+                "❌ للمقارنة اختر صورتين فقط",
+                "error"
             );
 
-          height =
-            maxDim;
+            return;
         }
 
-      }
+
+        for (const file of files) {
+
+            if (collectedImages.length >= 2) {
+                break;
+            }
+
+            const base64 =
+                await resizeImage(file);
+
+            collectedImages.push(base64);
+        }
 
 
-      canvas.width =
-        width;
-
-      canvas.height =
-        height;
+        updatePreview();
 
 
-      const ctx =
-        canvas.getContext("2d");
+        if (collectedImages.length === 2) {
 
+            await sendImages();
 
-      ctx.drawImage(
-        video,
-        0,
-        0,
-        width,
-        height
-      );
+        } else {
 
+            showStatus(
+                "📸 اختر الصورة الثانية",
+                ""
+            );
 
-      const base64 =
-        canvas.toDataURL(
-          "image/jpeg",
-          0.75
-        );
-
-
-      stopCamera();
-
-      showPreview(base64);
-
-      handleImageCaptured(base64);
+        }
 
     }
-  );
 
 
-  /* =========================================
-     Gallery
-  ========================================= */
+    // =========================================================
+    // Camera Handler
+    // =========================================================
 
-  galleryInput.addEventListener(
-    "change",
-    event => {
+    async function handleCamera(event) {
 
-      const file =
-        event.target.files?.[0];
+        const file =
+            event.target.files?.[0];
 
-      if (!file) {
-        return;
-      }
+        if (!file) {
+            return;
+        }
 
 
-      if (!file.type.startsWith("image/")) {
+        if (selectedMode === "sticker") {
 
-        setStatus(
-          "الملف المحدد ليس صورة",
-          "error"
+            collectedImages = [];
+
+        }
+
+
+        if (
+            selectedMode === "compare" &&
+            collectedImages.length >= 2
+        ) {
+
+            showStatus(
+                "❌ تم اختيار صورتين بالفعل",
+                "error"
+            );
+
+            return;
+        }
+
+
+        const base64 =
+            await resizeImage(file);
+
+        collectedImages.push(base64);
+
+        updatePreview();
+
+
+        if (selectedMode === "sticker") {
+
+            await sendImages();
+
+        } else {
+
+            if (collectedImages.length === 2) {
+
+                await sendImages();
+
+            } else {
+
+                showStatus(
+                    "📸 اختر الصورة الثانية",
+                    ""
+                );
+
+            }
+
+        }
+
+    }
+
+
+    // =========================================================
+    // Resize Image
+    // =========================================================
+
+    function resizeImage(file) {
+
+        return new Promise((resolve, reject) => {
+
+            const reader =
+                new FileReader();
+
+
+            reader.onload = function(e) {
+
+                const img =
+                    new Image();
+
+
+                img.onload = function() {
+
+                    const maxSize = 900;
+
+                    let width =
+                        img.width;
+
+                    let height =
+                        img.height;
+
+
+                    if (width > maxSize ||
+                        height > maxSize) {
+
+                        if (width > height) {
+
+                            height =
+                                height *
+                                (maxSize / width);
+
+                            width =
+                                maxSize;
+
+                        } else {
+
+                            width =
+                                width *
+                                (maxSize / height);
+
+                            height =
+                                maxSize;
+
+                        }
+
+                    }
+
+
+                    const canvas =
+                        document.createElement("canvas");
+
+                    canvas.width =
+                        width;
+
+                    canvas.height =
+                        height;
+
+
+                    const ctx =
+                        canvas.getContext("2d");
+
+
+                    ctx.drawImage(
+                        img,
+                        0,
+                        0,
+                        width,
+                        height
+                    );
+
+
+                    const result =
+                        canvas.toDataURL(
+                            "image/jpeg",
+                            0.75
+                        );
+
+
+                    resolve(result);
+
+                };
+
+
+                img.onerror = function() {
+
+                    reject(
+                        new Error(
+                            "تعذر قراءة الصورة"
+                        )
+                    );
+
+                };
+
+
+                img.src = e.target.result;
+
+            };
+
+
+            reader.onerror = function() {
+
+                reject(
+                    new Error(
+                        "تعذر قراءة الملف"
+                    )
+                );
+
+            };
+
+
+            reader.readAsDataURL(file);
+
+        });
+
+    }
+
+
+    // =========================================================
+    // Update Preview
+    // =========================================================
+
+    function updatePreview() {
+
+        const container =
+            document.getElementById(
+                "previewContainer"
+            );
+
+        const grid =
+            document.getElementById(
+                "previewGrid"
+            );
+
+
+        grid.innerHTML = "";
+
+
+        if (collectedImages.length === 0) {
+
+            container.classList.remove("show");
+
+            return;
+        }
+
+
+        container.classList.add("show");
+
+
+        collectedImages.forEach(
+            (image, index) => {
+
+                const item =
+                    document.createElement("div");
+
+                item.className =
+                    "preview-item";
+
+
+                const img =
+                    document.createElement("img");
+
+                img.src = image;
+
+
+                const number =
+                    document.createElement("div");
+
+                number.className =
+                    "preview-number";
+
+                number.innerText =
+                    index + 1;
+
+
+                item.appendChild(img);
+                item.appendChild(number);
+
+                grid.appendChild(item);
+
+            }
         );
 
-        return;
-      }
+    }
 
 
-      const reader =
-        new FileReader();
+    // =========================================================
+    // Send Images To FastAPI
+    // =========================================================
+
+    async function sendImages() {
+
+        if (collectedImages.length === 0) {
+
+            return;
+        }
 
 
-      reader.onload =
-        event => {
+        if (
+            selectedMode === "sticker" &&
+            collectedImages.length !== 1
+        ) {
 
-          const img =
-            new Image();
-
-
-          img.onload =
-            () => {
-
-              const maxDim =
-                900;
-
-              let width =
-                img.width;
-
-              let height =
-                img.height;
+            return;
+        }
 
 
-              if (width > height) {
+        if (
+            selectedMode === "compare" &&
+            collectedImages.length !== 2
+        ) {
 
-                if (width > maxDim) {
-
-                  height =
-                    Math.round(
-                      height *
-                      (maxDim / width)
-                    );
-
-                  width =
-                    maxDim;
-                }
-
-              }
-
-              else {
-
-                if (height > maxDim) {
-
-                  width =
-                    Math.round(
-                      width *
-                      (maxDim / height)
-                    );
-
-                  height =
-                    maxDim;
-                }
-
-              }
+            return;
+        }
 
 
-              canvas.width =
-                width;
+        showLoading(true);
 
-              canvas.height =
-                height;
+        hideStatus();
 
 
-              const ctx =
-                canvas.getContext("2d");
+        try {
+
+            const formData =
+                new FormData();
 
 
-              ctx.drawImage(
-                img,
-                0,
-                0,
-                width,
-                height
-              );
+            // Action
+
+            formData.append(
+                "action",
+                selectedMode
+            );
 
 
-              const base64 =
-                canvas.toDataURL(
-                  "image/jpeg",
-                  0.75
+            // Convert Base64 → Blob
+
+            for (
+                let i = 0;
+                i < collectedImages.length;
+                i++
+            ) {
+
+                const base64 =
+                    collectedImages[i];
+
+
+                const response =
+                    await fetch(base64);
+
+
+                const blob =
+                    await response.blob();
+
+
+                formData.append(
+                    "images",
+                    blob,
+                    `image_${i + 1}.jpg`
+                );
+
+            }
+
+
+            // Send to FastAPI
+
+            const response =
+                await fetch(
+                    "https://my-website.fastapicloud.dev/process",
+                    {
+                        method: "POST",
+                        body: formData
+                    }
                 );
 
 
-              showPreview(base64);
-
-              handleImageCaptured(
-                base64
-              );
-
-            };
+            let result;
 
 
-          img.onerror =
-            () => {
+            try {
 
-              setStatus(
-                "تعذر قراءة الصورة",
+                result =
+                    await response.json();
+
+            } catch {
+
+                throw new Error(
+                    "الخادم أرسل استجابة غير صحيحة"
+                );
+
+            }
+
+
+            if (!response.ok) {
+
+                throw new Error(
+                    result.detail ||
+                    "حدث خطأ في الخادم"
+                );
+
+            }
+
+
+            // Success
+
+            showStatus(
+                result.message ||
+                "✅ تمت العملية بنجاح",
+                "success"
+            );
+
+
+            showLoading(false);
+
+
+            // Close Telegram after short delay
+
+            setTimeout(() => {
+
+                tg.close();
+
+            }, 1500);
+
+
+        } catch (error) {
+
+            console.error(
+                "Upload error:",
+                error
+            );
+
+
+            showLoading(false);
+
+
+            showStatus(
+                "❌ حدث خطأ:\n" +
+                error.message,
                 "error"
-              );
+            );
 
-            };
-
-
-          img.src =
-            event.target.result;
-
-        };
-
-
-      reader.readAsDataURL(file);
+        }
 
     }
-  );
 
 
-  /* =========================================
-     Handle Image
-  ========================================= */
+    // =========================================================
+    // Loading
+    // =========================================================
 
-  function handleImageCaptured(base64Img) {
+    function showLoading(show) {
 
-    collectedImages.push(base64Img);
+        const loading =
+            document.getElementById(
+                "loading"
+            );
 
 
-    /* -------- Sticker -------- */
+        if (show) {
 
-    if (
-      selectedMode === "sticker"
-    ) {
+            loading.classList.add("show");
 
-      sendToTelegram({
-        action: "sticker",
-        images: collectedImages
-      });
+        } else {
 
-      return;
+            loading.classList.remove("show");
+
+        }
+
     }
 
 
-    /* -------- Compare -------- */
+    // =========================================================
+    // Status
+    // =========================================================
 
-    if (
-      selectedMode === "compare"
-    ) {
+    function showStatus(message, type) {
 
-      if (
-        collectedImages.length === 1
-      ) {
+        const status =
+            document.getElementById(
+                "status"
+            );
 
-        step2Title.textContent =
-          "الصورة الثانية";
 
-        step2Subtitle.textContent =
-          "اختر الصورة الثانية لإكمال المقارنة";
+        status.innerText =
+            message;
 
-        setStatus(
-          "تم اختيار الصورة الأولى ✓ — الصورة الثانية من 2",
-          "success"
+
+        status.className =
+            "status show";
+
+
+        if (type) {
+
+            status.classList.add(type);
+
+        }
+
+    }
+
+
+    function hideStatus() {
+
+        const status =
+            document.getElementById(
+                "status"
+            );
+
+
+        status.classList.remove(
+            "show"
         );
 
-        resetMedia();
-
-      }
-
-
-      else if (
-        collectedImages.length === 2
-      ) {
-
-        sendToTelegram({
-          action: "compare",
-          images: collectedImages
-        });
-
-      }
-
     }
 
-  }
 
+    // =========================================================
+    // Prevent accidental Telegram closing
+    // =========================================================
 
-  /* =========================================
-     Send to Telegram
-  ========================================= */
+    window.addEventListener(
+        "beforeunload",
+        function() {
 
-  function sendToTelegram(data) {
+            if (currentStream) {
 
-    loading.style.display =
-      "block";
+                currentStream
+                    .getTracks()
+                    .forEach(
+                        track => track.stop()
+                    );
 
-    document.getElementById(
-      "captureControls"
-    ).style.display = "none";
+            }
 
-    setStatus(
-      "جاري إرسال الصور..."
+        }
     );
-
-
-    try {
-
-      if (
-        tg &&
-        typeof tg.sendData === "function"
-      ) {
-
-        tg.sendData(
-          JSON.stringify(data)
-        );
-
-        setTimeout(() => {
-
-          tg.close();
-
-        }, 300);
-
-      }
-
-      else {
-
-        setStatus(
-          "يجب فتح التطبيق من داخل Telegram",
-          "error"
-        );
-
-        loading.style.display =
-          "none";
-
-      }
-
-    }
-
-    catch (error) {
-
-      console.error(error);
-
-      loading.style.display =
-        "none";
-
-      setStatus(
-        "حدث خطأ أثناء إرسال البيانات",
-        "error"
-      );
-
-    }
-
-  }
-
-
-  /* =========================================
-     Page Cleanup
-  ========================================= */
-
-  window.addEventListener(
-    "beforeunload",
-    () => {
-
-      stopCamera();
-
-    }
-  );
 
 </script>
 
 </body>
 </html>
-```

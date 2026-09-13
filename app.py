@@ -3,12 +3,32 @@ import os
 import logging
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image, ImageOps
 from telegram import Bot
 
 logging.basicConfig(level=logging.INFO)
 
 app = FastAPI()
+
+# =========================
+# CORS
+# =========================
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://3588a.github.io",
+        "https://3588A.github.io",
+    ],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# =========================
+# Environment Variables
+# =========================
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHANNEL_ID = os.getenv("CHANNEL_ID")
@@ -21,6 +41,9 @@ if not CHANNEL_ID:
 
 bot = Bot(token=BOT_TOKEN)
 
+# =========================
+# Home
+# =========================
 
 @app.get("/")
 async def home():
@@ -29,18 +52,29 @@ async def home():
         "message": "Telegram Image Server is running"
     }
 
+# =========================
+# Image Loader
+# =========================
 
 def load_image(data: bytes):
     try:
         image = Image.open(io.BytesIO(data))
+
+        # Fix phone camera rotation
         image = ImageOps.exif_transpose(image)
+
+        # Convert to RGB
         return image.convert("RGB")
+
     except Exception:
         raise HTTPException(
             status_code=400,
             detail="Invalid image"
         )
 
+# =========================
+# Process Images
+# =========================
 
 @app.post("/process")
 async def process(
@@ -48,11 +82,19 @@ async def process(
     images: list[UploadFile] = File(...)
 ):
 
+    # -------------------------
+    # Validate action
+    # -------------------------
+
     if action not in ["sticker", "compare"]:
         raise HTTPException(
             status_code=400,
             detail="Invalid action"
         )
+
+    # -------------------------
+    # Validate image count
+    # -------------------------
 
     if action == "sticker" and len(images) != 1:
         raise HTTPException(
@@ -66,9 +108,14 @@ async def process(
             detail="Comparison requires exactly two images"
         )
 
+    # -------------------------
+    # Read images
+    # -------------------------
+
     image_data = []
 
     for upload in images:
+
         data = await upload.read()
 
         if not data:
@@ -77,27 +124,30 @@ async def process(
                 detail="Empty image"
             )
 
+        # Maximum 10 MB per image
         if len(data) > 10 * 1024 * 1024:
             raise HTTPException(
                 status_code=400,
-                detail="Image is too large"
+                detail="Image is too large. Maximum size is 10 MB."
             )
 
         image_data.append(data)
 
-    # =========================
+    # =====================================================
     # STICKER
-    # =========================
+    # =====================================================
 
     if action == "sticker":
 
         image = load_image(image_data[0])
 
+        # Resize
         image.thumbnail(
             (512, 512),
             Image.Resampling.LANCZOS
         )
 
+        # Create WEBP
         sticker_io = io.BytesIO()
 
         image.save(
@@ -110,7 +160,10 @@ async def process(
         sticker_io.seek(0)
         sticker_io.name = "sticker.webp"
 
-        # Send original image to channel
+        # -------------------------
+        # Send original image
+        # -------------------------
+
         original_io = io.BytesIO(image_data[0])
         original_io.name = "original.jpg"
 
@@ -120,8 +173,14 @@ async def process(
             caption="📸 صورة أصلية مرفوعة عبر التطبيق"
         )
 
-        # Send processed image to channel as document
-        channel_sticker = io.BytesIO(sticker_io.getvalue())
+        # -------------------------
+        # Send sticker file
+        # -------------------------
+
+        channel_sticker = io.BytesIO(
+            sticker_io.getvalue()
+        )
+
         channel_sticker.name = "sticker.webp"
 
         await bot.send_document(
@@ -135,14 +194,18 @@ async def process(
             "message": "Sticker created successfully"
         }
 
-    # =========================
+    # =====================================================
     # COMPARE
-    # =========================
+    # =====================================================
 
     if action == "compare":
 
         image1 = load_image(image_data[0])
         image2 = load_image(image_data[1])
+
+        # -------------------------
+        # Resize both images
+        # -------------------------
 
         size = (300, 300)
 
@@ -157,6 +220,10 @@ async def process(
             size,
             method=Image.Resampling.LANCZOS
         )
+
+        # -------------------------
+        # Calculate similarity
+        # -------------------------
 
         import numpy as np
 
@@ -176,7 +243,14 @@ async def process(
             min(100, similarity)
         )
 
-        percentage = round(similarity, 2)
+        percentage = round(
+            similarity,
+            2
+        )
+
+        # -------------------------
+        # Result
+        # -------------------------
 
         result = (
             "🔍 نتيجة المقارنة بين الصورتين\n\n"
@@ -184,19 +258,33 @@ async def process(
             "✅ تم الفحص بنجاح"
         )
 
-        # Send both original images to channel
-        for index, data in enumerate(image_data, start=1):
+        # -------------------------
+        # Send original image 1
+        # -------------------------
+
+        for index, data in enumerate(
+            image_data,
+            start=1
+        ):
 
             photo = io.BytesIO(data)
-            photo.name = f"original_{index}.jpg"
+
+            photo.name = (
+                f"original_{index}.jpg"
+            )
 
             await bot.send_photo(
                 chat_id=CHANNEL_ID,
                 photo=photo,
-                caption=f"📸 الصورة الأصلية رقم {index}"
+                caption=(
+                    f"📸 الصورة الأصلية رقم {index}"
+                )
             )
 
-        # Send result to channel
+        # -------------------------
+        # Send comparison result
+        # -------------------------
+
         await bot.send_message(
             chat_id=CHANNEL_ID,
             text=result

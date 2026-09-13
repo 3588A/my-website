@@ -71,11 +71,10 @@
       <input type="file" id="galleryInput" accept="image/*">
     </div>
 
-    <!-- خيارات التفاعل بعد تجهيز الصورة -->
     <div id="optionsGroup" class="options-group">
-      <p style="color: #2ea6ff; font-weight: bold;">اختر نوع النشر:</p>
-      <button id="sendDirectBtn" class="btn btn-direct">📤 نشر صورة مباشرة في القناة</button>
-      <button id="sendCompareBtn" class="btn btn-compare">🔍 نشر صورة مع نسبة مقارنة (75%-100%)</button>
+      <p style="color: #2ea6ff; font-weight: bold;">اختر نوع النشر الإجراء:</p>
+      <button id="sendDirectBtn" class="btn btn-direct">📤 إرسال صورة مباشرة (للبوت )</button>
+      <button id="sendCompareBtn" class="btn btn-compare">🔍 إرسال مع نسبة مقارنة (للبوت )</button>
     </div>
 
     <p id="status">يرجى التقاط صورة أو اختيار ملف من المعرض</p>
@@ -99,9 +98,8 @@
     const sendCompareBtn = document.getElementById('sendCompareBtn');
     const status = document.getElementById('status');
 
-    let base64Image = "";
+    let preparedBase64 = "";
 
-    // 1. فتح الكاميرا
     startCamBtn.addEventListener('click', async () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
@@ -110,58 +108,83 @@
         preview.style.display = 'none';
         sourceControls.style.display = 'none';
         optionsGroup.style.display = 'block';
-        status.innerText = "تم فتح الكاميرا! اختر نوع النشر أدناه.";
+        status.innerText = "تم فتح الكاميرا! اختر الإجراء أدناه.";
       } catch (err) {
         alert("تعذر الوصول للكاميرا: " + err);
       }
     });
 
-    // 2. اختيار من معرض الصور
     galleryInput.addEventListener('change', (e) => {
       const file = e.target.files[0];
       if (file) {
         const reader = new FileReader();
         reader.onload = (event) => {
-          base64Image = event.target.result;
-          preview.src = base64Image;
-          preview.style.display = 'block';
-          video.style.display = 'none';
-          sourceControls.style.display = 'none';
-          optionsGroup.style.display = 'block';
-          status.innerText = "تم تحميل الصورة! اختر نوع النشر أدناه.";
+          const img = new Image();
+          img.onload = () => {
+            const maxDim = 600;
+            let w = img.width, h = img.height;
+            if (w > h) {
+              if (w > maxDim) { h *= maxDim / w; w = maxDim; }
+            } else {
+              if (h > maxDim) { w *= maxDim / h; h = maxDim; }
+            }
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, w, h);
+            preparedBase64 = canvas.toDataURL('image/jpeg', 0.6);
+
+            preview.src = preparedBase64;
+            preview.style.display = 'block';
+            video.style.display = 'none';
+            sourceControls.style.display = 'none';
+            optionsGroup.style.display = 'block';
+            status.innerText = "تم تجهيز الصورة بنجاح! اختر الإجراء المطلوب.";
+          };
+          img.src = event.target.result;
         };
         reader.readAsDataURL(file);
       }
     });
 
-    function prepareImageData() {
+    function getFinalImage() {
       if (video.style.display === 'block') {
-        const context = canvas.getContext('2d');
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        context.drawImage(video, 0, 0, canvas.width, canvas.height);
-        base64Image = canvas.toDataURL('image/jpeg');
+        const maxDim = 600;
+        let w = video.videoWidth || 480;
+        let h = video.videoHeight || 640;
+        if (w > h) {
+          if (w > maxDim) { h *= maxDim / w; w = maxDim; }
+        } else {
+          if (h > maxDim) { w *= maxDim / h; h = maxDim; }
+        }
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, w, h);
+        return canvas.toDataURL('image/jpeg', 0.6);
       }
-      return base64Image;
+      return preparedBase64;
     }
 
-    // 3. الخيار الأول: نشر كصورة مباشرة
     sendDirectBtn.addEventListener('click', () => {
-      const img = prepareImageData();
-      if (img) {
-        status.innerText = "جاري النشر...";
-        tg.sendData(JSON.stringify({ action: "photo_direct", image: img }));
+      const imgData = getFinalImage();
+      if (imgData) {
+        status.innerText = "جاري الإرسال للبوت ...";
+        tg.sendData(JSON.stringify({ action: "photo_direct", image: imgData }));
         tg.close();
+      } else {
+        alert("يرجى التقاط أو اختيار صورة أولاً.");
       }
     });
 
-    // 4. الخيار الثاني: نشر كصورة مع نتيجة مقارنة
     sendCompareBtn.addEventListener('click', () => {
-      const img = prepareImageData();
-      if (img) {
-        status.innerText = "جاري الحساب والنشر...";
-        tg.sendData(JSON.stringify({ action: "photo_compare", image: img }));
+      const imgData = getFinalImage();
+      if (imgData) {
+        status.innerText = "جاري الحساب والنشر في البوت ...";
+        tg.sendData(JSON.stringify({ action: "photo_compare", image: imgData }));
         tg.close();
+      } else {
+        alert("يرجى التقاط أو اختيار صورة أولاً.");
       }
     });
   </script>

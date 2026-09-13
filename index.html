@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>التقاط أو اختيار صورة</title>
+  <title>تطبيق الصور والتفاعلات</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
     body {
@@ -14,61 +14,73 @@
       justify-content: center;
       min-height: 100vh;
       margin: 0;
-      background-color: #121212;
-      color: #fff;
+      background-color: #151e27;
+      color: #ffffff;
       padding: 20px;
       box-sizing: border-box;
     }
+    .card {
+      background-color: #212d3b;
+      padding: 20px;
+      border-radius: 16px;
+      width: 100%;
+      max-width: 380px;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+      text-align: center;
+    }
     video, img {
       width: 100%;
-      max-width: 400px;
+      max-width: 340px;
       border-radius: 12px;
       display: none;
       margin-bottom: 15px;
+      border: 2px solid #2ea6ff;
     }
-    .btn-group {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
+    .btn {
       width: 100%;
-      max-width: 300px;
-    }
-    button, label.upload-btn {
-      padding: 14px 20px;
+      padding: 14px;
       font-size: 16px;
-      background-color: #0088cc;
-      color: white;
       border: none;
       border-radius: 10px;
       cursor: pointer;
-      text-align: center;
       font-weight: bold;
+      margin-top: 10px;
+      box-sizing: border-box;
+      display: block;
     }
-    input[type="file"] {
-      display: none;
-    }
-    #status {
-      margin-top: 15px;
-      font-size: 14px;
-      color: #aaa;
-    }
+    .btn-cam { background-color: #2ea6ff; color: #fff; }
+    .btn-gallery { background-color: #34c759; color: #fff; text-align: center; }
+    .btn-direct { background-color: #007aff; color: #fff; }
+    .btn-compare { background-color: #ff9500; color: #fff; }
+    .options-group { display: none; margin-top: 15px; }
+    input[type="file"] { display: none; }
+    #status { margin-top: 15px; font-size: 14px; color: #aaa; }
   </style>
 </head>
 <body>
 
-  <h3>اختر مصدر الصورة</h3>
+  <div class="card">
+    <h3>اختر أو التقط صورة للمتابعة</h3>
 
-  <video id="video" autoplay playsinline></video>
-  <img id="preview" alt="معاينة الصورة" />
+    <video id="video" autoplay playsinline></video>
+    <img id="preview" alt="معاينة الصورة" />
 
-  <div class="btn-group">
-    <button id="startCamBtn">📸 فتح الكاميرا المباشرة</button>
-    <label for="galleryInput" class="upload-btn">🖼️ اختيار من معرض الصور</label>
-    <input type="file" id="galleryInput" accept="image/*">
-    <button id="sendBtn" style="display:none; background-color: #2ec4b6;">✅ إرسال ونشر في القناة</button>
+    <div id="sourceControls">
+      <button id="startCamBtn" class="btn btn-cam">📸 فتح الكاميرا والتقاط صورة</button>
+      <label for="galleryInput" class="btn btn-gallery">🖼️ اختيار من معرض الصور</label>
+      <input type="file" id="galleryInput" accept="image/*">
+    </div>
+
+    <!-- خيارات التفاعل بعد تجهيز الصورة -->
+    <div id="optionsGroup" class="options-group">
+      <p style="color: #2ea6ff; font-weight: bold;">اختر نوع النشر:</p>
+      <button id="sendDirectBtn" class="btn btn-direct">📤 نشر صورة مباشرة في القناة</button>
+      <button id="sendCompareBtn" class="btn btn-compare">🔍 نشر صورة مع نسبة مقارنة (75%-100%)</button>
+    </div>
+
+    <p id="status">يرجى التقاط صورة أو اختيار ملف من المعرض</p>
   </div>
 
-  <p id="status"></p>
   <canvas id="canvas" style="display:none;"></canvas>
 
   <script>
@@ -81,27 +93,30 @@
     const canvas = document.getElementById('canvas');
     const startCamBtn = document.getElementById('startCamBtn');
     const galleryInput = document.getElementById('galleryInput');
-    const sendBtn = document.getElementById('sendBtn');
+    const sourceControls = document.getElementById('sourceControls');
+    const optionsGroup = document.getElementById('optionsGroup');
+    const sendDirectBtn = document.getElementById('sendDirectBtn');
+    const sendCompareBtn = document.getElementById('sendCompareBtn');
     const status = document.getElementById('status');
 
     let base64Image = "";
 
-    // 1. طلب إذن فتح الكاميرا
+    // 1. فتح الكاميرا
     startCamBtn.addEventListener('click', async () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
         video.srcObject = stream;
         video.style.display = 'block';
         preview.style.display = 'none';
-        startCamBtn.style.display = 'none';
-        sendBtn.style.display = 'block';
-        status.innerText = "اضغط على زر الإرسال لالتقاط ونشر الصورة.";
+        sourceControls.style.display = 'none';
+        optionsGroup.style.display = 'block';
+        status.innerText = "تم فتح الكاميرا! اختر نوع النشر أدناه.";
       } catch (err) {
         alert("تعذر الوصول للكاميرا: " + err);
       }
     });
 
-    // 2. اختيار صورة من تطبيق الصور / معرض الهاتف
+    // 2. اختيار من معرض الصور
     galleryInput.addEventListener('change', (e) => {
       const file = e.target.files[0];
       if (file) {
@@ -111,15 +126,15 @@
           preview.src = base64Image;
           preview.style.display = 'block';
           video.style.display = 'none';
-          sendBtn.style.display = 'block';
-          status.innerText = "تمت إضافة الصورة من الصور الخاصة بك. اضغط إرسال للنشر.";
+          sourceControls.style.display = 'none';
+          optionsGroup.style.display = 'block';
+          status.innerText = "تم تحميل الصورة! اختر نوع النشر أدناه.";
         };
         reader.readAsDataURL(file);
       }
     });
 
-    // 3. إرسال الصورة المختارة إلى سيرفر البوت
-    sendBtn.addEventListener('click', () => {
+    function prepareImageData() {
       if (video.style.display === 'block') {
         const context = canvas.getContext('2d');
         canvas.width = video.videoWidth;
@@ -127,13 +142,26 @@
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
         base64Image = canvas.toDataURL('image/jpeg');
       }
+      return base64Image;
+    }
 
-      if (base64Image) {
-        status.innerText = "جاري الإرسال...";
-        tg.sendData(JSON.stringify({ image: base64Image }));
+    // 3. الخيار الأول: نشر كصورة مباشرة
+    sendDirectBtn.addEventListener('click', () => {
+      const img = prepareImageData();
+      if (img) {
+        status.innerText = "جاري النشر...";
+        tg.sendData(JSON.stringify({ action: "photo_direct", image: img }));
         tg.close();
-      } else {
-        alert("يرجى التقاط صورة أو اختيار ملف أولاً.");
+      }
+    });
+
+    // 4. الخيار الثاني: نشر كصورة مع نتيجة مقارنة
+    sendCompareBtn.addEventListener('click', () => {
+      const img = prepareImageData();
+      if (img) {
+        status.innerText = "جاري الحساب والنشر...";
+        tg.sendData(JSON.stringify({ action: "photo_compare", image: img }));
+        tg.close();
       }
     });
   </script>

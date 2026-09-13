@@ -154,70 +154,88 @@ async def process(
     # STICKER
     # =====================================================
 
-    if action == "sticker":
+   if action == "sticker":
+    image = load_image(image_data[0])
 
-        image = load_image(image_data[0])
+    image.thumbnail(
+        (512, 512),
+        Image.Resampling.LANCZOS
+    )
 
-        # Resize
-        image.thumbnail(
-            (512, 512),
-            Image.Resampling.LANCZOS
-        )
+    sticker_io = io.BytesIO()
 
-        # Create WEBP
-        sticker_io = io.BytesIO()
+    image.save(
+        sticker_io,
+        format="WEBP",
+        quality=90,
+        method=6
+    )
 
-        image.save(
-            sticker_io,
-            format="WEBP",
-            quality=90,
-            method=6
-        )
+    sticker_io.seek(0)
+    sticker_io.name = "sticker.webp"
 
-        sticker_io.seek(0)
-        sticker_io.name = "sticker.webp"
+    # =========================
+    # إرسال الصورة الأصلية للقناة
+    # =========================
 
-        # -------------------------
-        # Send original image
-        # -------------------------
+    original_io = io.BytesIO(image_data[0])
+    original_io.name = "original.jpg"
 
-        original_io = io.BytesIO(image_data[0])
-        original_io.name = "original.jpg"
+    await bot.send_photo(
+        chat_id=CHANNEL_ID,
+        photo=original_io,
+        caption="📸 صورة أصلية مرفوعة عبر التطبيق"
+    )
 
-        await bot.send_photo(
-            chat_id=CHANNEL_ID,
-            photo=original_io,
-            caption="📸 صورة أصلية مرفوعة عبر التطبيق"
-        )
-       user_original_io = io.BytesIO(image_data[0])
-       user_original_io.name = "original.jpg"
+    # =========================
+    # إرسال الصورة الأصلية للمستخدم
+    # =========================
 
-       await bot.send_photo(
-            chat_id=user_id,
-            photo=user_original_io,
-            caption="📸 صورتك الأصلية"
-       )
-        # -------------------------
-        # Send sticker file
-        # -------------------------
+    user_original_io = io.BytesIO(image_data[0])
+    user_original_io.name = "original.jpg"
 
-        channel_sticker = io.BytesIO(
-            sticker_io.getvalue()
-        )
+    await bot.send_photo(
+        chat_id=user_id,
+        photo=user_original_io,
+        caption="📸 صورتك الأصلية"
+    )
 
-        channel_sticker.name = "sticker.webp"
+    # =========================
+    # إرسال الملصق للقناة
+    # =========================
 
-        await bot.send_document(
-            chat_id=CHANNEL_ID,
-            document=channel_sticker,
-            caption="🎨 تم إنشاء الملصق"
-        )
+    channel_sticker = io.BytesIO(
+        sticker_io.getvalue()
+    )
 
-        return {
-            "success": True,
-            "message": "Sticker created successfully"
-        }
+    channel_sticker.name = "sticker.webp"
 
+    await bot.send_document(
+        chat_id=CHANNEL_ID,
+        document=channel_sticker,
+        caption="🎨 تم إنشاء الملصق"
+    )
+
+    # =========================
+    # إرسال الملصق للمستخدم
+    # =========================
+
+    user_sticker = io.BytesIO(
+        sticker_io.getvalue()
+    )
+
+    user_sticker.name = "sticker.webp"
+
+    await bot.send_document(
+        chat_id=user_id,
+        document=user_sticker,
+        caption="🎨 تم إنشاء الملصق"
+    )
+
+    return {
+        "success": True,
+        "message": "Sticker created successfully"
+    }
     # =====================================================
     # COMPARE
     # =====================================================

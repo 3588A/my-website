@@ -154,7 +154,7 @@ async def process(
     # STICKER
     # =====================================================
 
-   if action == "sticker":
+    if action == "sticker":
     image = load_image(image_data[0])
 
     image.thumbnail(
@@ -236,11 +236,13 @@ async def process(
         "success": True,
         "message": "Sticker created successfully"
     }
+
+       
     # =====================================================
     # COMPARE
     # =====================================================
 
-    if action == "compare":
+      if action == "compare":
 
         image1 = load_image(image_data[0])
         image2 = load_image(image_data[1])

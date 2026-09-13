@@ -79,6 +79,7 @@ def load_image(data: bytes):
 @app.post("/process")
 async def process(
     action: str = Form(...),
+    initData: str = Form(...),
     images: list[UploadFile] = File(...)
 ):
 

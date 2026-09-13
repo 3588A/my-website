@@ -242,10 +242,10 @@ async def process(
     # COMPARE
     # =====================================================
 
-      if action == "compare":
+    if action == "compare":
 
-          image1 = load_image(image_data[0])
-          image2 = load_image(image_data[1])
+        image1 = load_image(image_data[0])
+        image2 = load_image(image_data[1])
 
         # -------------------------
         # Resize both images
@@ -303,7 +303,7 @@ async def process(
         )
 
         # -------------------------
-        # Send original image 1
+        # Send original images
         # -------------------------
 
         for index, data in enumerate(

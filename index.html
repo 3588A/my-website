@@ -72,7 +72,7 @@
     <!-- المرحلة 2: التقاط أو اختيار الصورة -->
     <div id="step2" class="step-section">
       <h3 id="step2Title">التقط أو اختر الصورة</h3>
-      
+
       <video id="video" autoplay playsinline muted></video>
       <img id="preview" alt="معاينة الصورة" />
 
@@ -101,10 +101,10 @@
     const video = document.getElementById('video');
     const preview = document.getElementById('preview');
     const canvas = document.getElementById('canvas');
-    
+
     const modeStickerBtn = document.getElementById('modeStickerBtn');
     const modeCompareBtn = document.getElementById('modeCompareBtn');
-    
+
     const startCamBtn = document.getElementById('startCamBtn');
     const takeSnapBtn = document.getElementById('takeSnapBtn');
     const galleryInput = document.getElementById('galleryInput');
@@ -135,8 +135,8 @@
     // --- فتح الكاميرا ---
     startCamBtn.addEventListener('click', async () => {
       try {
-        currentStream = await navigator.mediaDevices.getUserMedia({ 
-          video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } } 
+        currentStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } }
         });
         video.srcObject = currentStream;
         video.style.display = 'block';
@@ -198,7 +198,7 @@
             canvas.height = h;
             const ctx = canvas.getContext('2d');
             ctx.drawImage(img, 0, 0, w, h);
-            
+
             const base64Img = canvas.toDataURL('image/jpeg', 0.5);
             handleImageCaptured(base64Img);
           };
@@ -212,6 +212,11 @@
     function handleImageCaptured(base64Img) {
       collectedImages.push(base64Img);
 
+      // إصلاح: عرض معاينة الصورة الملتقطة/المختارة للمستخدم
+      video.style.display = 'none';
+      preview.src = base64Img;
+      preview.style.display = 'block';
+
       if (selectedMode === "sticker") {
         status.innerText = "جاري النشر في القناة وإرسال الملصق...";
         tg.sendData(JSON.stringify({
@@ -219,7 +224,7 @@
           images: collectedImages
         }));
         tg.close();
-      } 
+      }
       else if (selectedMode === "compare") {
         if (collectedImages.length === 1) {
           // تم جمع الصورة الأولى، يطلب الصورة الثانية

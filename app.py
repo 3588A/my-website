@@ -108,7 +108,7 @@ async def process(
             status_code=400,
             detail="Invalid action"
         )
-
+    user_id = get_telegram_user_id(initData)
     # -------------------------
     # Validate image count
     # -------------------------
@@ -189,7 +189,14 @@ async def process(
             photo=original_io,
             caption="📸 صورة أصلية مرفوعة عبر التطبيق"
         )
+       user_original_io = io.BytesIO(image_data[0])
+       user_original_io.name = "original.jpg"
 
+       await bot.send_photo(
+            chat_id=user_id,
+            photo=user_original_io,
+            caption="📸 صورتك الأصلية"
+       )
         # -------------------------
         # Send sticker file
         # -------------------------

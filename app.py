@@ -43,7 +43,20 @@ if not CHANNEL_ID:
     raise RuntimeError("CHANNEL_ID is not configured")
 
 bot = Bot(token=BOT_TOKEN)
+def get_telegram_user_id(init_data: str):
+    data = dict(parse_qsl(init_data))
 
+    user_json = data.get("user")
+
+    if not user_json:
+        raise HTTPException(
+            status_code=400,
+            detail="Telegram user data not found"
+        )
+
+    user = json.loads(user_json)
+
+    return user["id"]
 # =========================
 # Home
 # =========================

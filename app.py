@@ -1,8 +1,6 @@
+```python
 import io
 import os
-import logging
-import hmac
-import hashlib
 import json
 from urllib.parse import parse_qsl
 
@@ -12,14 +10,16 @@ from PIL import Image, ImageOps
 from telegram import Bot
 
 
-logging.basicConfig(level=logging.INFO)
+# =====================================================
+# APP
+# =====================================================
 
 app = FastAPI()
 
 
-# =========================
+# =====================================================
 # CORS
-# =========================
+# =====================================================
 
 app.add_middleware(
     CORSMiddleware,
@@ -33,9 +33,9 @@ app.add_middleware(
 )
 
 
-# =========================
-# Environment Variables
-# =========================
+# =====================================================
+# ENVIRONMENT VARIABLES
+# =====================================================
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHANNEL_ID = os.getenv("CHANNEL_ID")
@@ -52,9 +52,9 @@ if not CHANNEL_ID:
 bot = Bot(token=BOT_TOKEN)
 
 
-# =========================
-# Telegram User ID
-# =========================
+# =====================================================
+# TELEGRAM USER ID
+# =====================================================
 
 def get_telegram_user_id(init_data: str):
 
@@ -69,14 +69,18 @@ def get_telegram_user_id(init_data: str):
         )
 
     try:
+
         user = json.loads(user_json)
+
     except Exception:
+
         raise HTTPException(
             status_code=400,
             detail="Invalid Telegram user data"
         )
 
     if "id" not in user:
+
         raise HTTPException(
             status_code=400,
             detail="Telegram user ID not found"
@@ -85,9 +89,9 @@ def get_telegram_user_id(init_data: str):
     return user["id"]
 
 
-# =========================
-# Home
-# =========================
+# =====================================================
+# HOME
+# =====================================================
 
 @app.get("/")
 async def home():
@@ -98,9 +102,9 @@ async def home():
     }
 
 
-# =========================
-# Image Loader
-# =========================
+# =====================================================
+# IMAGE LOADER
+# =====================================================
 
 def load_image(data: bytes):
 
@@ -110,13 +114,15 @@ def load_image(data: bytes):
             io.BytesIO(data)
         )
 
-        # Fix phone camera rotation
+        # إصلاح دوران صور الهاتف
         image = ImageOps.exif_transpose(
             image
         )
 
-        # Convert to RGB
-        return image.convert("RGB")
+        # تحويل إلى RGB
+        image = image.convert("RGB")
+
+        return image
 
     except Exception:
 
@@ -126,9 +132,9 @@ def load_image(data: bytes):
         )
 
 
-# =========================
-# Process Images
-# =========================
+# =====================================================
+# PROCESS
+# =====================================================
 
 @app.post("/process")
 async def process(
@@ -141,9 +147,9 @@ async def process(
 
 ):
 
-    # =========================
-    # Validate Action
-    # =========================
+    # =================================================
+    # VALIDATE ACTION
+    # =================================================
 
     if action not in [
         "sticker",
@@ -156,18 +162,18 @@ async def process(
         )
 
 
-    # =========================
-    # Get Telegram User ID
-    # =========================
+    # =================================================
+    # GET TELEGRAM USER
+    # =================================================
 
     user_id = get_telegram_user_id(
         initData
     )
 
 
-    # =========================
-    # Validate Image Count
-    # =========================
+    # =================================================
+    # VALIDATE IMAGE COUNT
+    # =================================================
 
     if action == "sticker":
 
@@ -195,9 +201,9 @@ async def process(
             )
 
 
-    # =========================
-    # Read Images
-    # =========================
+    # =================================================
+    # READ IMAGES
+    # =================================================
 
     image_data = []
 
@@ -215,8 +221,7 @@ async def process(
             )
 
 
-        # Maximum 10 MB per image
-
+        # الحد الأقصى 10 MB
         if len(data) > 10 * 1024 * 1024:
 
             raise HTTPException(
@@ -231,24 +236,24 @@ async def process(
         image_data.append(data)
 
 
-    # =====================================================
+    # =================================================
     # STICKER
-    # =====================================================
+    # =================================================
 
     if action == "sticker":
 
-        # -------------------------
-        # Load image
-        # -------------------------
+        # ---------------------------------------------
+        # LOAD IMAGE
+        # ---------------------------------------------
 
         image = load_image(
             image_data[0]
         )
 
 
-        # -------------------------
-        # Resize
-        # -------------------------
+        # ---------------------------------------------
+        # RESIZE
+        # ---------------------------------------------
 
         image.thumbnail(
             (512, 512),
@@ -256,9 +261,9 @@ async def process(
         )
 
 
-        # -------------------------
-        # Create WEBP
-        # -------------------------
+        # ---------------------------------------------
+        # CREATE WEBP
+        # ---------------------------------------------
 
         sticker_io = io.BytesIO()
 
@@ -273,56 +278,47 @@ async def process(
 
         sticker_io.seek(0)
 
-        sticker_io.name = (
-            "sticker.webp"
-        )
+        sticker_bytes = sticker_io.getvalue()
 
 
         # =================================================
-        # CHANNEL - ORIGINAL IMAGE
+        # CHANNEL - ORIGINAL
         # =================================================
 
-        original_io = io.BytesIO(
+        channel_original = io.BytesIO(
             image_data[0]
         )
 
-        original_io.name = (
-            "original.jpg"
-        )
+        channel_original.name = "original.jpg"
 
 
         await bot.send_photo(
 
             chat_id=CHANNEL_ID,
 
-            photo=original_io,
+            photo=channel_original,
 
-            caption=(
-                "📸 صورة أصلية "
-                "مرفوعة عبر التطبيق"
-            )
+            caption="📸 صورة أصلية مرفوعة عبر التطبيق"
 
         )
 
 
         # =================================================
-        # USER - ORIGINAL IMAGE
+        # USER - ORIGINAL
         # =================================================
 
-        user_original_io = io.BytesIO(
+        user_original = io.BytesIO(
             image_data[0]
         )
 
-        user_original_io.name = (
-            "original.jpg"
-        )
+        user_original.name = "original.jpg"
 
 
         await bot.send_photo(
 
             chat_id=user_id,
 
-            photo=user_original_io,
+            photo=user_original,
 
             caption="📸 صورتك الأصلية"
 
@@ -334,14 +330,10 @@ async def process(
         # =================================================
 
         channel_sticker = io.BytesIO(
-
-            sticker_io.getvalue()
-
+            sticker_bytes
         )
 
-        channel_sticker.name = (
-            "sticker.webp"
-        )
+        channel_sticker.name = "sticker.webp"
 
 
         await bot.send_document(
@@ -360,14 +352,10 @@ async def process(
         # =================================================
 
         user_sticker = io.BytesIO(
-
-            sticker_io.getvalue()
-
+            sticker_bytes
         )
 
-        user_sticker.name = (
-            "sticker.webp"
-        )
+        user_sticker.name = "sticker.webp"
 
 
         await bot.send_document(
@@ -381,26 +369,30 @@ async def process(
         )
 
 
+        # =================================================
+        # RESPONSE
+        # =================================================
+
         return {
 
             "success": True,
 
             "message": (
-                "Sticker created successfully"
+                "Sticker sent to user and channel"
             )
 
         }
 
 
-    # =====================================================
+    # =================================================
     # COMPARE
-    # =====================================================
+    # =================================================
 
     if action == "compare":
 
-        # -------------------------
-        # Load images
-        # -------------------------
+        # ---------------------------------------------
+        # LOAD IMAGES
+        # ---------------------------------------------
 
         image1 = load_image(
             image_data[0]
@@ -411,9 +403,9 @@ async def process(
         )
 
 
-        # -------------------------
-        # Resize both images
-        # -------------------------
+        # ---------------------------------------------
+        # RESIZE
+        # ---------------------------------------------
 
         size = (
             300,
@@ -443,9 +435,9 @@ async def process(
         )
 
 
-        # -------------------------
-        # Calculate similarity
-        # -------------------------
+        # ---------------------------------------------
+        # CALCULATE SIMILARITY
+        # ---------------------------------------------
 
         import numpy as np
 
@@ -491,25 +483,20 @@ async def process(
 
 
         percentage = round(
-
             similarity,
-
             2
-
         )
 
 
-        # -------------------------
-        # Result
-        # -------------------------
+        # ---------------------------------------------
+        # RESULT TEXT
+        # ---------------------------------------------
 
         result = (
 
-            "🔍 نتيجة المقارنة "
-            "بين الصورتين\n\n"
+            "🔍 نتيجة المقارنة بين الصورتين\n\n"
 
-            f"📊 نسبة التشابه: "
-            f"{percentage}%\n"
+            f"📊 نسبة التشابه: {percentage}%\n\n"
 
             "✅ تم الفحص بنجاح"
 
@@ -517,47 +504,51 @@ async def process(
 
 
         # =================================================
-        # SEND ORIGINAL IMAGES TO CHANNEL
+        # CHANNEL - IMAGE 1
         # =================================================
 
-        for index, data in enumerate(
+        channel_photo1 = io.BytesIO(
+            image_data[0]
+        )
 
-            image_data,
-
-            start=1
-
-        ):
-
-            photo = io.BytesIO(
-                data
-            )
+        channel_photo1.name = "original_1.jpg"
 
 
-            photo.name = (
+        await bot.send_photo(
 
-                f"original_{index}.jpg"
+            chat_id=CHANNEL_ID,
 
-            )
+            photo=channel_photo1,
 
+            caption="📸 الصورة الأصلية رقم 1"
 
-            await bot.send_photo(
-
-                chat_id=CHANNEL_ID,
-
-                photo=photo,
-
-                caption=(
-
-                    f"📸 الصورة الأصلية "
-                    f"رقم {index}"
-
-                )
-
-            )
+        )
 
 
         # =================================================
-        # SEND RESULT TO CHANNEL
+        # CHANNEL - IMAGE 2
+        # =================================================
+
+        channel_photo2 = io.BytesIO(
+            image_data[1]
+        )
+
+        channel_photo2.name = "original_2.jpg"
+
+
+        await bot.send_photo(
+
+            chat_id=CHANNEL_ID,
+
+            photo=channel_photo2,
+
+            caption="📸 الصورة الأصلية رقم 2"
+
+        )
+
+
+        # =================================================
+        # CHANNEL - RESULT
         # =================================================
 
         await bot.send_message(
@@ -569,6 +560,67 @@ async def process(
         )
 
 
+        # =================================================
+        # USER - IMAGE 1
+        # =================================================
+
+        user_photo1 = io.BytesIO(
+            image_data[0]
+        )
+
+        user_photo1.name = "original_1.jpg"
+
+
+        await bot.send_photo(
+
+            chat_id=user_id,
+
+            photo=user_photo1,
+
+            caption="📸 الصورة الأولى"
+
+        )
+
+
+        # =================================================
+        # USER - IMAGE 2
+        # =================================================
+
+        user_photo2 = io.BytesIO(
+            image_data[1]
+        )
+
+        user_photo2.name = "original_2.jpg"
+
+
+        await bot.send_photo(
+
+            chat_id=user_id,
+
+            photo=user_photo2,
+
+            caption="📸 الصورة الثانية"
+
+        )
+
+
+        # =================================================
+        # USER - RESULT
+        # =================================================
+
+        await bot.send_message(
+
+            chat_id=user_id,
+
+            text=result
+
+        )
+
+
+        # =================================================
+        # RESPONSE
+        # =================================================
+
         return {
 
             "success": True,
@@ -578,3 +630,4 @@ async def process(
             "message": result
 
         }
+```

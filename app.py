@@ -155,7 +155,7 @@ async def process(
     # =====================================================
 
     if action == "sticker":
-    image = load_image(image_data[0])
+        image = load_image(image_data[0])
 
     image.thumbnail(
         (512, 512),
@@ -244,8 +244,8 @@ async def process(
 
       if action == "compare":
 
-        image1 = load_image(image_data[0])
-        image2 = load_image(image_data[1])
+          image1 = load_image(image_data[0])
+          image2 = load_image(image_data[1])
 
         # -------------------------
         # Resize both images

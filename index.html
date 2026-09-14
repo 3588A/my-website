@@ -235,7 +235,7 @@
     </div>
 
     <div class="subtitle">
-        إنشاء ملصق أو مقارنة صورتين
+        إنشاء ملصق أو مقارنة صورتين أو تقييم جمالك
     </div>
 
     <!-- Modes -->
@@ -256,6 +256,14 @@
             onclick="selectMode('compare')"
         >
             🔍 مقارنة
+        </button>
+
+        <button
+            class="mode-button"
+            id="beautyMode"
+            onclick="selectMode('beauty')"
+        >
+            ✨ تقييم جمالك
         </button>
 
     </div>
@@ -348,7 +356,7 @@
 
         <div class="spinner"></div>
 
-        <div style="margin-top:10px;">
+        <div style="margin-top:10px;" id="loadingText">
             جاري معالجة الصورة...
         </div>
 
@@ -362,7 +370,7 @@
     ></div>
 
     <div class="info">
-        سيتم إرسال الصور إلى الخادم لمعالجتها ثم إرسال النتيجة إلى قناة Telegram.
+        سيتم إرسال الصور والنتائج إلى البوت والقناة بعد إتمام المعالجة.
     </div>
 
 </div>
@@ -419,6 +427,9 @@
         const compareMode =
             document.getElementById("compareMode");
 
+        const beautyMode =
+            document.getElementById("beautyMode");
+
         const uploadTitle =
             document.getElementById("uploadTitle");
 
@@ -430,6 +441,7 @@
 
             stickerMode.classList.add("active");
             compareMode.classList.remove("active");
+            beautyMode.classList.remove("active");
 
             uploadTitle.innerText =
                 "🎨 إنشاء ملصق";
@@ -437,16 +449,29 @@
             uploadDescription.innerText =
                 "اختر صورة واحدة لإنشاء ملصق";
 
-        } else {
+        } else if (mode === "compare") {
 
             stickerMode.classList.remove("active");
             compareMode.classList.add("active");
+            beautyMode.classList.remove("active");
 
             uploadTitle.innerText =
                 "🔍 مقارنة صورتين";
 
             uploadDescription.innerText =
                 "اختر صورتين لمقارنتهما";
+
+        } else {
+
+            stickerMode.classList.remove("active");
+            compareMode.classList.remove("active");
+            beautyMode.classList.add("active");
+
+            uploadTitle.innerText =
+                "✨ تقييم جمالك";
+
+            uploadDescription.innerText =
+                "اختر صورة واحدة للحصول على تقييم عشوائي احترافي من 70 إلى 100";
 
         }
 
@@ -462,7 +487,10 @@
         const input =
             document.getElementById("galleryInput");
 
-        if (selectedMode === "sticker") {
+        if (
+            selectedMode === "sticker" ||
+            selectedMode === "beauty"
+        ) {
 
             input.multiple = false;
 
@@ -507,7 +535,10 @@
         }
 
 
-        if (selectedMode === "sticker") {
+        if (
+            selectedMode === "sticker" ||
+            selectedMode === "beauty"
+        ) {
 
             if (files.length > 0) {
 
@@ -587,7 +618,10 @@
         }
 
 
-        if (selectedMode === "sticker") {
+        if (
+            selectedMode === "sticker" ||
+            selectedMode === "beauty"
+        ) {
 
             collectedImages = [];
 
@@ -616,7 +650,10 @@
         updatePreview();
 
 
-        if (selectedMode === "sticker") {
+        if (
+            selectedMode === "sticker" ||
+            selectedMode === "beauty"
+        ) {
 
             await sendImages();
 
@@ -845,7 +882,10 @@
 
 
         if (
-            selectedMode === "sticker" &&
+            (
+                selectedMode === "sticker" ||
+                selectedMode === "beauty"
+            ) &&
             collectedImages.length !== 1
         ) {
 

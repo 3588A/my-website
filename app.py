@@ -181,7 +181,9 @@ async def subscription_status(user_id: int):
         return {"enabled": False, "subscribed": True, "url": channel_url}
     try:
         member = await Bot(BOT_TOKEN).get_chat_member(chat_id=channel_id, user_id=user_id)
-        subscribed = member.status not in {"left", "kicked"}
+        subscribed = member.status in {"creator", "administrator", "member"} or (
+            member.status == "restricted" and bool(getattr(member, "is_member", False))
+        )
     except Exception as exc:
         print(f"Subscription check failed: {exc}")
         subscribed = False

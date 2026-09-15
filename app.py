@@ -80,26 +80,8 @@ def _load_ocr_reader(languages):
         print(f"EasyOCR loading model: {languages}", flush=True)
         reader = easyocr.Reader(languages, gpu=False, verbose=False)
         _OCR_READERS[key] = reader
-        _OCR_WARMUP_ERROR = None
         print(f"EasyOCR model ready: {languages}", flush=True)
         return reader
-
-
-async def _warmup_ocr():
-    """Warm the default Arabic+English model after the web server starts."""
-    global _OCR_WARMUP_ERROR
-    try:
-        await asyncio.to_thread(_load_ocr_reader, ["ar", "en"])
-    except Exception as exc:
-        _OCR_WARMUP_ERROR = f"{type(exc).__name__}: {exc}"
-        print(f"EasyOCR warmup failed: {_OCR_WARMUP_ERROR}", flush=True)
-        traceback.print_exc()
-
-
-@app.on_event("startup")
-async def startup_ocr_warmup():
-    # Do not block FastAPI startup while model files are downloaded.
-    asyncio.create_task(_warmup_ocr())
 
 
 # ---------------------------------------------------------

@@ -24,6 +24,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 CHANNEL_ID = os.getenv("CHANNEL_ID", "")
 ADMIN_USER_ID = 6931187332
 MAX_FILE_SIZE = 10 * 1024 * 1024
+MAX_PDF_IMAGES = 50
 POINTS_PER_OPERATION = 5
 DAILY_LIMIT = int(os.getenv("DAILY_LIMIT", "50"))
 MONTHLY_LIMIT = int(os.getenv("MONTHLY_LIMIT", "500"))
@@ -292,8 +293,12 @@ async def process(
     if action not in SINGLE_ACTIONS and action != "compare":
         raise HTTPException(400, "الأداة غير متاحة")
     required = 2 if action == "compare" else 1
-    if (action == "compare" and len(images) != 2) or (action != "compare" and (len(images) < required or len(images) > 10)):
-        raise HTTPException(400, "اختر عدد الصور المناسب للأداة (من 1 إلى 10 للـ PDF)")
+    if action == "compare" and len(images) != 2:
+        raise HTTPException(400, "المقارنة تحتاج صورتين بالضبط")
+    if action == "pdf" and not (1 <= len(images) <= MAX_PDF_IMAGES):
+        raise HTTPException(400, f"يمكن تحويل من 1 إلى {MAX_PDF_IMAGES} صورة إلى PDF في العملية الواحدة")
+    if action != "compare" and action != "pdf" and len(images) != 1:
+        raise HTTPException(400, "هذه الأداة تحتاج صورة واحدة")
     raw = [await image.read() for image in images]
     if any(not data or len(data) > MAX_FILE_SIZE for data in raw):
         raise HTTPException(400, "كل صورة يجب ألا تتجاوز 10 MB")

@@ -258,60 +258,38 @@ async def process(
             user_id, image_data[0], result_bytes, "sticker.webp", "🎨 تم إنشاء الملصق"
         )
         add_operation(user_id)
-        return {"success": True, "message": "🎨 تم إنشاء الملصق وإرساله إلى البوت "}
+        return {"success": True, "message": "🎨 تم إنشاء الملصق وإرساله إلى البوت والقناة"}
 
     # -----------------------------------------------------
-    # OCR - local, no external API
+    # OCR - EasyOCR, no Tesseract/system dependency
     # -----------------------------------------------------
     if action == "ocr":
-        print("OCR DEBUG: starting OCR", flush=True)
-        print(f"OCR DEBUG: requested language = {ocr_language!r}", flush=True)
-
         try:
-            import pytesseract
+            import easyocr
         except Exception as exc:
-            print("OCR DEBUG: pytesseract IMPORT FAILED", flush=True)
-            print(f"OCR DEBUG: {type(exc).__name__}: {exc}", flush=True)
-            traceback.print_exc()
-            raise HTTPException(500, f"OCR Python package error: pytesseract غير مثبت. التفاصيل: {type(exc).__name__}: {exc}")
-
-        print(f"OCR DEBUG: pytesseract imported, version={getattr(pytesseract, '__version__', 'unknown')}", flush=True)
-
-        try:
-            version = pytesseract.get_tesseract_version()
-            print(f"OCR DEBUG: Tesseract engine detected: {version}", flush=True)
-        except Exception as exc:
-            print("OCR DEBUG: TESSERACT ENGINE CHECK FAILED", flush=True)
-            print(f"OCR DEBUG: {type(exc).__name__}: {exc}", flush=True)
-            traceback.print_exc()
-            raise HTTPException(500, f"OCR engine error: محرك Tesseract غير مثبت أو غير متاح على الخادم. التفاصيل: {type(exc).__name__}: {exc}")
-
-        try:
-            available_languages = pytesseract.get_languages(config="")
-            print(f"OCR DEBUG: available languages = {available_languages}", flush=True)
-        except Exception as exc:
-            print("OCR DEBUG: LANGUAGE LIST CHECK FAILED", flush=True)
-            print(f"OCR DEBUG: {type(exc).__name__}: {exc}", flush=True)
-            traceback.print_exc()
-            raise HTTPException(500, f"OCR language check failed: {type(exc).__name__}: {exc}")
-
-        requested = [x.strip() for x in (ocr_language or "ara+eng").split("+") if x.strip()]
-        missing = [x for x in requested if x not in available_languages]
-        if missing:
-            print(f"OCR DEBUG: missing language files = {missing}", flush=True)
-            raise HTTPException(500, f"OCR language error: ملفات اللغة غير متوفرة: {', '.join(missing)}. اللغات المتوفرة: {', '.join(available_languages) if available_languages else 'لا توجد'}")
+            raise HTTPException(500, f"OCR غير متوفر: EasyOCR غير مثبت. التفاصيل: {type(exc).__name__}: {exc}")
 
         image = load_image(image_data[0])
-        print(f"OCR DEBUG: image loaded, size={image.size}", flush=True)
+        language_map = {
+            "ara": ["ar"],
+            "eng": ["en"],
+            "ara+eng": ["ar", "en"],
+            "en": ["en"],
+            "ar": ["ar"],
+            "ar+en": ["ar", "en"],
+        }
+        languages = language_map.get((ocr_language or "ara+eng").lower(), ["ar", "en"])
 
         try:
-            text = pytesseract.image_to_string(image, lang=ocr_language or "ara+eng").strip()
-            print(f"OCR DEBUG: recognition completed, characters={len(text)}", flush=True)
+            import numpy as np
+            image_array = np.asarray(image)
+            # EasyOCR supports Arabic and English language models.
+            reader = easyocr.Reader(languages, gpu=False, verbose=False)
+            results = reader.readtext(image_array, detail=0, paragraph=True)
+            text = "\n".join(str(item).strip() for item in results if str(item).strip()).strip()
         except Exception as exc:
-            print("OCR DEBUG: RECOGNITION FAILED", flush=True)
-            print(f"OCR DEBUG: {type(exc).__name__}: {exc}", flush=True)
-            traceback.print_exc()
-            raise HTTPException(500, f"OCR recognition error: {type(exc).__name__}: {exc}")
+            print(f"EasyOCR recognition failed: {type(exc).__name__}: {exc}", flush=True)
+            raise HTTPException(500, f"OCR recognition error: فشل EasyOCR. التفاصيل: {type(exc).__name__}: {exc}")
 
         if not text:
             text = "لم يتم العثور على نص واضح في الصورة."
@@ -388,7 +366,7 @@ async def process(
         result_bytes = out.getvalue()
         await deliver(user_id, image_data[0], result_bytes, "meme.jpg", "😂 تم إنشاء الميم")
         add_operation(user_id)
-        return {"success": True, "message": "😂 تم إنشاء الميم وإرساله إلى البوت "}
+        return {"success": True, "message": "😂 تم إنشاء الميم وإرساله إلى البوت والقناة"}
 
     # -----------------------------------------------------
     # TEXT
@@ -408,7 +386,7 @@ async def process(
         result_bytes = out.getvalue()
         await deliver(user_id, image_data[0], result_bytes, "text_image.jpg", "✍️ تم إضافة النص")
         add_operation(user_id)
-        return {"success": True, "message": "✍️ تم إضافة النص وإرساله إلى البوت "}
+        return {"success": True, "message": "✍️ تم إضافة النص وإرساله إلى البوت والقناة"}
 
     # -----------------------------------------------------
     # COMPRESS

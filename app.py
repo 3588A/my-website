@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 from telegram import Bot
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 APP_DIR = Path(__file__).resolve().parent
 DB_PATH = Path(os.getenv("DATABASE_PATH", APP_DIR / "bot.sqlite3"))
@@ -28,6 +29,8 @@ MAX_PDF_IMAGES = 50
 POINTS_PER_OPERATION = 5
 DAILY_LIMIT = int(os.getenv("DAILY_LIMIT", "50"))
 MONTHLY_LIMIT = int(os.getenv("MONTHLY_LIMIT", "500"))
+MINI_APP_URL = os.getenv("MINI_APP_URL", "https://my-website.fastapicloud.dev")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "")
 
 app = FastAPI(title="Image Studio Telegram API", version="2.0.0")
 app.add_middleware(
@@ -78,19 +81,29 @@ def init_db():
                 created_at TEXT NOT NULL,
                 FOREIGN KEY(user_id) REFERENCES users(user_id)
             );
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT ''
+            );
             CREATE INDEX IF NOT EXISTS usage_user_date ON usage(user_id, created_at);
             """
         )
 
 
 @app.on_event("startup")
-def startup():
+async def startup():
     init_db()
+    if BOT_TOKEN and WEBHOOK_URL:
+        try:
+            await Bot(BOT_TOKEN).set_webhook(url=WEBHOOK_URL.rstrip("/") + "/telegram/webhook")
+            print("Telegram webhook configured", flush=True)
+        except Exception as exc:
+            print(f"Telegram webhook setup failed: {exc}", flush=True)
 
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
-    return JSONResponse(status_code=exc.status_code, content={"detail": str(exc.detail)})
+    detail = exc.detail if isinstance(exc.detail, (dict, list)) else str(exc.detail)
+    return JSONResponse(status_code=exc.status_code, content={"detail": detail})
 
 
 @app.exception_handler(Exception)
@@ -149,6 +162,39 @@ def require_admin(init_data: str):
     if user["id"] != ADMIN_USER_ID:
         raise HTTPException(403, "هذه الصفحة متاحة للمشرف فقط")
     return user
+
+
+def get_setting(key: str, default: str = ""):
+    with db() as conn:
+        row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+    return row["value"] if row else default
+
+
+def set_setting(key: str, value: str):
+    with db() as conn:
+        conn.execute("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
+
+
+async def subscription_status(user_id: int):
+    enabled = get_setting("force_sub_enabled", "0") == "1"
+    channel_id = get_setting("force_sub_channel_id", "")
+    channel_url = get_setting("force_sub_url", "")
+    if not enabled or not channel_id:
+        return {"enabled": False, "subscribed": True, "url": channel_url}
+    try:
+        member = await Bot(BOT_TOKEN).get_chat_member(chat_id=channel_id, user_id=user_id)
+        subscribed = member.status not in {"left", "kicked"}
+    except Exception as exc:
+        print(f"Subscription check failed: {exc}")
+        subscribed = False
+    return {"enabled": True, "subscribed": subscribed, "url": channel_url}
+
+
+async def enforce_subscription(user_id: int):
+    result = await subscription_status(user_id)
+    if not result["subscribed"]:
+        raise HTTPException(403, {"code": "subscription_required", "message": "يجب الاشتراك في القناة أولاً", "channel_url": result["url"]})
+    return result
 
 
 def check_rate_limit(user_id: int):
@@ -261,18 +307,23 @@ async def home():
 @app.post("/me")
 async def me(initData: str = Form(...)):
     user = current_user(initData)
-    return stats_for(user["id"])
+    await enforce_subscription(user["id"])
+    result = stats_for(user["id"])
+    result["subscription"] = await subscription_status(user["id"])
+    return result
 
 
 @app.post("/stats")
 async def stats(initData: str = Form(...)):
     user = current_user(initData)
+    await enforce_subscription(user["id"])
     return stats_for(user["id"])
 
 
 @app.post("/notifications/read")
 async def notifications_read(initData: str = Form(...)):
     user = current_user(initData)
+    await enforce_subscription(user["id"])
     with db() as conn:
         conn.execute("UPDATE notifications SET is_read=1 WHERE user_id=?", (user["id"],))
     return {"success": True}
@@ -289,6 +340,7 @@ async def process(
     crop_x: float = Form(0), crop_y: float = Form(0), crop_w: float = Form(100), crop_h: float = Form(100),
 ):
     user = current_user(initData)
+    await enforce_subscription(user["id"])
     check_rate_limit(user["id"])
     if action not in SINGLE_ACTIONS and action != "compare":
         raise HTTPException(400, "الأداة غير متاحة")
@@ -369,6 +421,52 @@ async def admin_notify(initData: str = Form(...), title: str = Form(...), body: 
         users = conn.execute("SELECT user_id FROM users").fetchall()
         conn.executemany("INSERT INTO notifications(user_id,title,body,created_at) VALUES(?,?,?,?)", [(r["user_id"], title[:120], body[:1000], now_iso()) for r in users])
     return {"success": True, "created": len(users)}
+
+
+@app.post("/telegram/webhook")
+async def telegram_webhook(request: Request):
+    """Telegram webhook: /start sends instructions and an OPEN button."""
+    if not BOT_TOKEN:
+        raise HTTPException(503, "BOT_TOKEN غير مضبوط")
+    update = await request.json()
+    message = update.get("message") or update.get("edited_message")
+    if not message or not message.get("chat", {}).get("id"):
+        return {"ok": True}
+    chat_id = message["chat"]["id"]
+    text = (message.get("text") or "").strip()
+    if text.startswith("/start"):
+        welcome = ("👋 أهلاً بك في Image Studio\n\n"
+                   "حوّل الصور، أنشئ PDF حتى 50 صورة، أضف النصوص، واضغط الصور بسهولة.\n\n"
+                   "طريقة الاستخدام:\n"
+                   "1) اضغط OPEN لفتح التطبيق.\n"
+                   "2) اختر الأداة المناسبة.\n"
+                   "3) ارفع الصورة أو الصور.\n"
+                   "4) استلم النتيجة هنا في Telegram.\n\n"
+                   "إذا ظهر طلب الاشتراك، اشترك في القناة ثم اضغط تحقق داخل التطبيق.")
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🚀 OPEN — فتح التطبيق", url=MINI_APP_URL)]])
+        await Bot(BOT_TOKEN).send_message(chat_id=chat_id, text=welcome, reply_markup=keyboard)
+    elif text in {"/help", "مساعدة"}:
+        await Bot(BOT_TOKEN).send_message(chat_id=chat_id, text="اضغط /start لعرض طريقة الاستخدام وزر OPEN.")
+    return {"ok": True}
+
+
+@app.post("/admin/subscription")
+async def admin_subscription(
+    initData: str = Form(...), enabled: str = Form("0"), channel_id: str = Form(""), channel_url: str = Form("")
+):
+    require_admin(initData)
+    if enabled == "1" and (not channel_id.strip() or not channel_url.startswith("https://t.me/")):
+        raise HTTPException(400, "أدخل معرّف القناة ورابط t.me صحيحًا")
+    set_setting("force_sub_enabled", "1" if enabled == "1" else "0")
+    set_setting("force_sub_channel_id", channel_id.strip())
+    set_setting("force_sub_url", channel_url.strip())
+    return {"success": True, "enabled": enabled == "1", "channel_id": channel_id.strip(), "channel_url": channel_url.strip()}
+
+
+@app.post("/subscription/status")
+async def subscription_status_endpoint(initData: str = Form(...)):
+    user = current_user(initData)
+    return await subscription_status(user["id"])
 
 
 @app.get("/health")

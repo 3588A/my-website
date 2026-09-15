@@ -1,566 +1,376 @@
+import hashlib
+import hmac
 import io
-import os
 import json
-import random
+import os
+import secrets
+import sqlite3
+import time
 import traceback
-import threading
-import asyncio
+from collections import defaultdict, deque
+from datetime import datetime, timezone
+from pathlib import Path
 from urllib.parse import parse_qsl
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from PIL import Image, ImageOps, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 from telegram import Bot
 
-app = FastAPI()
+APP_DIR = Path(__file__).resolve().parent
+DB_PATH = Path(os.getenv("DATABASE_PATH", APP_DIR / "bot.sqlite3"))
+BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+CHANNEL_ID = os.getenv("CHANNEL_ID", "")
+ADMIN_USER_ID = 6931187332
+MAX_FILE_SIZE = 10 * 1024 * 1024
+POINTS_PER_OPERATION = 5
+DAILY_LIMIT = int(os.getenv("DAILY_LIMIT", "50"))
+MONTHLY_LIMIT = int(os.getenv("MONTHLY_LIMIT", "500"))
 
-ALLOWED_ORIGINS = [
-    "https://3588a.github.io",
-    "https://3588A.github.io",
-]
-
+app = FastAPI(title="Image Studio Telegram API", version="2.0.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
+    allow_origins=[
+        "https://3588a.github.io",
+        "https://3588A.github.io",
+        "http://localhost:3000",
+        "http://127.0.0.1:5500",
+    ],
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+_rate_hits = defaultdict(deque)
+_RATE_WINDOW = 60
+_RATE_MAX = 20
+
+
+def db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    return conn
+
+
+def init_db():
+    with db() as conn:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                user_id INTEGER PRIMARY KEY,
+                username TEXT DEFAULT '', first_name TEXT DEFAULT '',
+                points INTEGER DEFAULT 0, operations INTEGER DEFAULT 0,
+                referrals INTEGER DEFAULT 0, notifications INTEGER DEFAULT 1,
+                created_at TEXT NOT NULL, last_seen TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS usage (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
+                action TEXT NOT NULL, created_at TEXT NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(user_id)
+            );
+            CREATE TABLE IF NOT EXISTS notifications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
+                title TEXT NOT NULL, body TEXT NOT NULL, is_read INTEGER DEFAULT 0,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(user_id)
+            );
+            CREATE INDEX IF NOT EXISTS usage_user_date ON usage(user_id, created_at);
+            """
+        )
+
+
+@app.on_event("startup")
+def startup():
+    init_db()
+
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
-    detail = exc.detail
-    if isinstance(detail, (dict, list)):
-        detail = json.dumps(detail, ensure_ascii=False)
-    else:
-        detail = str(detail)
-    return JSONResponse(status_code=exc.status_code, content={"detail": detail})
+    return JSONResponse(status_code=exc.status_code, content={"detail": str(exc.detail)})
 
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
-    print(f"UNHANDLED ERROR: {type(exc).__name__}: {exc}", flush=True)
     traceback.print_exc()
-    return JSONResponse(
-        status_code=500,
-        content={"detail": f"Server error: {type(exc).__name__}: {exc}"},
-    )
+    return JSONResponse(status_code=500, content={"detail": "حدث خطأ داخلي غير متوقع"})
 
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHANNEL_ID = os.getenv("CHANNEL_ID")
-
-if not BOT_TOKEN:
-    raise RuntimeError("BOT_TOKEN is not configured")
-if not CHANNEL_ID:
-    raise RuntimeError("CHANNEL_ID is not configured")
-
-bot = Bot(token=BOT_TOKEN)
-
-# EasyOCR is heavy. Load each language combination once and reuse it.
-_OCR_READERS = {}
-_OCR_LOCK = threading.Lock()
-_OCR_WARMUP_ERROR = None
+def now_iso():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _load_ocr_reader(languages):
-    """Load/cache an EasyOCR reader in a worker thread."""
-    global _OCR_WARMUP_ERROR
-    import easyocr
-
-    key = "+".join(languages)
-    if key in _OCR_READERS:
-        return _OCR_READERS[key]
-
-    with _OCR_LOCK:
-        if key in _OCR_READERS:
-            return _OCR_READERS[key]
-        print(f"EasyOCR loading model: {languages}", flush=True)
-        reader = easyocr.Reader(languages, gpu=False, verbose=False)
-        _OCR_READERS[key] = reader
-        print(f"EasyOCR model ready: {languages}", flush=True)
-        return reader
-
-
-# ---------------------------------------------------------
-# Telegram user
-# ---------------------------------------------------------
-def get_telegram_user_id(init_data: str):
-    data = dict(parse_qsl(init_data or ""))
-    user_json = data.get("user")
-    if not user_json:
-        raise HTTPException(400, "Telegram user data not found")
+def verify_init_data(init_data: str) -> dict:
+    """Validate Telegram WebApp initData using the bot token, not just the user JSON."""
+    if not BOT_TOKEN:
+        raise HTTPException(503, "BOT_TOKEN غير مضبوط على الخادم")
+    pairs = dict(parse_qsl(init_data or "", keep_blank_values=True))
+    received_hash = pairs.pop("hash", None)
+    if not received_hash or not pairs:
+        raise HTTPException(401, "جلسة Telegram غير صالحة")
+    data_check_string = "\n".join(f"{key}={pairs[key]}" for key in sorted(pairs))
+    secret_key = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
+    expected = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, received_hash):
+        raise HTTPException(401, "تعذر التحقق من جلسة Telegram")
     try:
-        user = json.loads(user_json)
+        user = json.loads(pairs.get("user", "{}"))
+        user_id = int(user["id"])
+    except (ValueError, KeyError, TypeError, json.JSONDecodeError):
+        raise HTTPException(401, "بيانات مستخدم Telegram غير صالحة")
+    auth_date = int(pairs.get("auth_date", "0"))
+    if auth_date and time.time() - auth_date > 86400:
+        raise HTTPException(401, "انتهت صلاحية جلسة Telegram، أعد فتح التطبيق")
+    return {"id": user_id, "username": user.get("username", ""), "first_name": user.get("first_name", "")}
+
+
+def ensure_user(user: dict):
+    timestamp = now_iso()
+    with db() as conn:
+        conn.execute(
+            """INSERT INTO users(user_id, username, first_name, created_at, last_seen)
+               VALUES(?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET
+               username=excluded.username, first_name=excluded.first_name, last_seen=excluded.last_seen""",
+            (user["id"], user["username"], user["first_name"], timestamp, timestamp),
+        )
+
+
+def current_user(init_data: str):
+    user = verify_init_data(init_data)
+    ensure_user(user)
+    return user
+
+
+def require_admin(init_data: str):
+    user = current_user(init_data)
+    if user["id"] != ADMIN_USER_ID:
+        raise HTTPException(403, "هذه الصفحة متاحة للمشرف فقط")
+    return user
+
+
+def check_rate_limit(user_id: int):
+    now = time.time()
+    hits = _rate_hits[user_id]
+    while hits and now - hits[0] > _RATE_WINDOW:
+        hits.popleft()
+    if len(hits) >= _RATE_MAX:
+        raise HTTPException(429, "تم الوصول إلى حد الطلبات. حاول بعد دقيقة")
+    hits.append(now)
+
+
+def period_counts(user_id: int):
+    with db() as conn:
+        daily = conn.execute(
+            "SELECT COUNT(*) FROM usage WHERE user_id=? AND created_at >= datetime('now','-1 day')", (user_id,)
+        ).fetchone()[0]
+        monthly = conn.execute(
+            "SELECT COUNT(*) FROM usage WHERE user_id=? AND created_at >= datetime('now','-30 day')", (user_id,)
+        ).fetchone()[0]
+    return daily, monthly
+
+
+def record_operation(user_id: int, action: str):
+    daily, monthly = period_counts(user_id)
+    if daily >= DAILY_LIMIT:
+        raise HTTPException(429, f"تجاوزت الحد اليومي ({DAILY_LIMIT} عملية)")
+    if monthly >= MONTHLY_LIMIT:
+        raise HTTPException(429, f"تجاوزت الحد الشهري ({MONTHLY_LIMIT} عملية)")
+    with db() as conn:
+        conn.execute("INSERT INTO usage(user_id, action, created_at) VALUES(?,?,?)", (user_id, action, now_iso()))
+        conn.execute("UPDATE users SET operations=operations+1, points=points+? WHERE user_id=?", (POINTS_PER_OPERATION, user_id))
+    return daily + 1, monthly + 1
+
+
+def stats_for(user_id: int):
+    daily, monthly = period_counts(user_id)
+    with db() as conn:
+        user = conn.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
+        recent = conn.execute(
+            "SELECT action, COUNT(*) count FROM usage WHERE user_id=? GROUP BY action ORDER BY count DESC", (user_id,)
+        ).fetchall()
+        notifications = conn.execute(
+            "SELECT id,title,body,created_at,is_read FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 10", (user_id,)
+        ).fetchall()
+    return {
+        "user": {"id": user_id, "username": user["username"], "first_name": user["first_name"]},
+        "points": user["points"], "operations": user["operations"], "referrals": user["referrals"],
+        "daily_used": daily, "daily_limit": DAILY_LIMIT, "monthly_used": monthly, "monthly_limit": MONTHLY_LIMIT,
+        "by_action": [dict(row) for row in recent], "notifications": [dict(row) for row in notifications],
+        "is_admin": user_id == ADMIN_USER_ID,
+    }
+
+
+def load_image(data: bytes):
+    if len(data) > MAX_FILE_SIZE:
+        raise HTTPException(400, "حجم الصورة يتجاوز 10 MB")
+    try:
+        return ImageOps.exif_transpose(Image.open(io.BytesIO(data))).convert("RGB")
     except Exception:
-        raise HTTPException(400, "Invalid Telegram user data")
-    if "id" not in user:
-        raise HTTPException(400, "Telegram user ID not found")
-    return int(user["id"])
+        raise HTTPException(400, "الملف المرفوع ليس صورة صالحة")
+
+
+def get_font(size, bold=False):
+    path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+    return ImageFont.truetype(path, size) if os.path.exists(path) else ImageFont.load_default()
+
+
+def centered(draw, image, text, y, font):
+    box = draw.textbbox((0, 0), text, font=font, stroke_width=3)
+    x = (image.width - (box[2] - box[0])) / 2
+    draw.text((x, y), text, font=font, fill="white", stroke_width=3, stroke_fill="black")
+
+
+async def send_message(chat_id, text):
+    if not BOT_TOKEN:
+        return False
+    try:
+        await Bot(BOT_TOKEN).send_message(chat_id=chat_id, text=str(text)[:4096])
+        return True
+    except Exception as exc:
+        print(f"Telegram message failed: {exc}")
+        return False
+
+
+async def send_document(chat_id, data, filename, caption=""):
+    if not BOT_TOKEN:
+        return False
+    try:
+        stream = io.BytesIO(data); stream.name = filename
+        await Bot(BOT_TOKEN).send_document(chat_id=chat_id, document=stream, caption=caption[:1024])
+        return True
+    except Exception as exc:
+        print(f"Telegram document failed: {exc}")
+        return False
+
+
+async def deliver(user_id, original, result=None, filename="result.jpg", caption=""):
+    if result is not None:
+        await send_document(user_id, result, filename, caption)
+        if CHANNEL_ID:
+            await send_document(CHANNEL_ID, result, filename, caption)
 
 
 @app.get("/")
 async def home():
-    return {"status": "online", "message": "Telegram Image Server is running"}
+    return {"status": "online", "service": "Image Studio", "version": "2.0.0"}
 
 
-# ---------------------------------------------------------
-# Image helpers
-# ---------------------------------------------------------
-def load_image(data: bytes):
-    try:
-        image = Image.open(io.BytesIO(data))
-        image = ImageOps.exif_transpose(image)
-        return image.convert("RGB")
-    except Exception:
-        raise HTTPException(400, "Invalid image")
-
-
-def get_font(size: int, bold: bool = False):
-    candidates = [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
-    ]
-    for path in candidates:
-        if os.path.exists(path):
-            try:
-                return ImageFont.truetype(path, size=size)
-            except Exception:
-                pass
-    return ImageFont.load_default()
-
-
-def draw_centered_text(draw, image, text, y, font, fill="white", stroke=3):
-    box = draw.textbbox((0, 0), text, font=font, stroke_width=stroke)
-    x = (image.width - (box[2] - box[0])) / 2
-    draw.text((x, y), text, font=font, fill=fill, stroke_width=stroke, stroke_fill="black")
-
-
-# ---------------------------------------------------------
-# Stats
-# ---------------------------------------------------------
-_user_stats = {}
-POINTS_PER_OPERATION = 5
-
-
-def add_operation(user_id: int):
-    stats = _user_stats.setdefault(user_id, {"points": 0, "operations": 0, "referrals": 0})
-    stats["operations"] += 1
-    stats["points"] += POINTS_PER_OPERATION
-    return stats
+@app.post("/me")
+async def me(initData: str = Form(...)):
+    user = current_user(initData)
+    return stats_for(user["id"])
 
 
 @app.post("/stats")
 async def stats(initData: str = Form(...)):
-    user_id = get_telegram_user_id(initData)
-    return _user_stats.get(user_id, {"points": 0, "operations": 0, "referrals": 0})
+    user = current_user(initData)
+    return stats_for(user["id"])
 
 
-# ---------------------------------------------------------
-# Telegram delivery: best effort so processing does not fail
-# ---------------------------------------------------------
-async def safe_send_photo(chat_id, data: bytes, filename="image.jpg", caption=None):
-    try:
-        stream = io.BytesIO(data)
-        stream.name = filename
-        await bot.send_photo(chat_id=chat_id, photo=stream, caption=caption)
-        return True
-    except Exception as exc:
-        print(f"Telegram send_photo failed for {chat_id}: {exc}")
-        return False
+@app.post("/notifications/read")
+async def notifications_read(initData: str = Form(...)):
+    user = current_user(initData)
+    with db() as conn:
+        conn.execute("UPDATE notifications SET is_read=1 WHERE user_id=?", (user["id"],))
+    return {"success": True}
 
 
-async def safe_send_document(chat_id, data: bytes, filename="result.bin", caption=None):
-    try:
-        stream = io.BytesIO(data)
-        stream.name = filename
-        await bot.send_document(chat_id=chat_id, document=stream, caption=caption)
-        return True
-    except Exception as exc:
-        print(f"Telegram send_document failed for {chat_id}: {exc}")
-        return False
-
-
-async def safe_send_message(chat_id, text):
-    try:
-        text = str(text)
-        # Telegram text messages are limited to 4096 characters.
-        # Keep OCR output intact by splitting long results into ordered chunks.
-        chunks = [text[i:i + 4000] for i in range(0, len(text), 4000)] or [""]
-        for chunk in chunks:
-            await bot.send_message(chat_id=chat_id, text=chunk)
-        return True
-    except Exception as exc:
-        print(f"Telegram send_message failed for {chat_id}: {exc}")
-        return False
-
-
-async def deliver(user_id, original_bytes, result_bytes=None, result_filename="result.jpg", result_caption=None, message=None, original_caption="📸 الصورة الأصلية"):
-    await safe_send_photo(CHANNEL_ID, original_bytes, "original.jpg", original_caption)
-    await safe_send_photo(user_id, original_bytes, "original.jpg", original_caption)
-
-    if result_bytes is not None:
-        await safe_send_document(CHANNEL_ID, result_bytes, result_filename, result_caption)
-        await safe_send_document(user_id, result_bytes, result_filename, result_caption)
-
-    if message:
-        await safe_send_message(CHANNEL_ID, message)
-        await safe_send_message(user_id, message)
-
-
-# ---------------------------------------------------------
-# Actions
-# ---------------------------------------------------------
-SINGLE_IMAGE_ACTIONS = [
-    "sticker",
-    "ocr",
-    "meme",
-    "text",
-    "beauty",
-    "compress",
-    "resize",
-    "convert",
-    "crop",
-]
-VALID_ACTIONS = SINGLE_IMAGE_ACTIONS + ["compare"]
-
-
-@app.get("/ocr-check")
-async def ocr_check():
-    """تشخيص EasyOCR و PyTorch بدون رفع صورة."""
-    result = {
-        "easyocr": False,
-        "torch": False,
-        "torchvision": False,
-        "models_loaded": list(_OCR_READERS.keys()),
-        "error": None,
-    }
-    try:
-        import easyocr
-        result["easyocr"] = True
-        result["easyocr_version"] = getattr(easyocr, "__version__", "unknown")
-        import torch
-        result["torch"] = True
-        result["torch_version"] = getattr(torch, "__version__", "unknown")
-        result["cuda_available"] = bool(torch.cuda.is_available())
-        try:
-            import torchvision
-            result["torchvision"] = True
-            result["torchvision_version"] = getattr(torchvision, "__version__", "unknown")
-        except Exception as exc:
-            result["torchvision_error"] = f"{type(exc).__name__}: {exc}"
-        return result
-    except Exception as exc:
-        result["error"] = f"{type(exc).__name__}: {exc}"
-        print("EASYOCR CHECK FAILED", flush=True)
-        traceback.print_exc()
-        return JSONResponse(status_code=500, content=result)
+SINGLE_ACTIONS = {"sticker", "pdf", "meme", "text", "beauty", "compress", "resize", "convert", "crop"}
 
 
 @app.post("/process")
 async def process(
-    action: str = Form(...),
-    initData: str = Form(...),
-    images: list[UploadFile] = File(...),
-    text_top: str = Form(""),
-    text_bottom: str = Form(""),
-    overlay_text: str = Form(""),
-    quality: int = Form(80),
-    width: int = Form(0),
-    height: int = Form(0),
-    output_format: str = Form("jpg"),
-    crop_x: float = Form(0),
-    crop_y: float = Form(0),
-    crop_w: float = Form(100),
-    crop_h: float = Form(100),
-    ocr_language: str = Form("ara+eng"),
+    action: str = Form(...), initData: str = Form(...), images: list[UploadFile] = File(...),
+    text_top: str = Form(""), text_bottom: str = Form(""), overlay_text: str = Form(""),
+    quality: int = Form(80), width: int = Form(0), height: int = Form(0), output_format: str = Form("jpg"),
+    crop_x: float = Form(0), crop_y: float = Form(0), crop_w: float = Form(100), crop_h: float = Form(100),
 ):
-    if action not in VALID_ACTIONS:
-        raise HTTPException(400, "Invalid action")
+    user = current_user(initData)
+    check_rate_limit(user["id"])
+    if action not in SINGLE_ACTIONS and action != "compare":
+        raise HTTPException(400, "الأداة غير متاحة")
+    required = 2 if action == "compare" else 1
+    if (action == "compare" and len(images) != 2) or (action != "compare" and (len(images) < required or len(images) > 10)):
+        raise HTTPException(400, "اختر عدد الصور المناسب للأداة (من 1 إلى 10 للـ PDF)")
+    raw = [await image.read() for image in images]
+    if any(not data or len(data) > MAX_FILE_SIZE for data in raw):
+        raise HTTPException(400, "كل صورة يجب ألا تتجاوز 10 MB")
+    record_operation(user["id"], action)
 
-    user_id = get_telegram_user_id(initData)
-
-    need = 2 if action == "compare" else 1
-    if len(images) != need:
-        raise HTTPException(400, f"{action} requires exactly {need} image(s)")
-
-    image_data = []
-    for upload in images:
-        data = await upload.read()
-        if not data:
-            raise HTTPException(400, "Empty image")
-        if len(data) > 10 * 1024 * 1024:
-            raise HTTPException(400, "Image is too large. Maximum size is 10 MB.")
-        image_data.append(data)
-
-    # -----------------------------------------------------
-    # STICKER
-    # -----------------------------------------------------
+    if action == "pdf":
+        pages = [load_image(data) for data in raw]
+        out = io.BytesIO(); pages[0].save(out, format="PDF", save_all=True, append_images=pages[1:], resolution=150)
+        result = out.getvalue(); await deliver(user["id"], raw[0], result, "images.pdf", "📄 تم تحويل الصور إلى PDF")
+        return {"success": True, "message": "📄 تم تحويل الصور إلى ملف PDF وإرساله إلى Telegram"}
     if action == "sticker":
-        image = load_image(image_data[0])
-        image.thumbnail((512, 512), Image.Resampling.LANCZOS)
-
-        canvas = Image.new("RGB", (image.width + 24, image.height + 24), "white")
-        canvas.paste(image, (12, 12))
-        out = io.BytesIO()
-        canvas.save(out, format="WEBP", quality=90, method=6)
-        result_bytes = out.getvalue()
-
-        await deliver(
-            user_id, image_data[0], result_bytes, "sticker.webp", "🎨 تم إنشاء الملصق"
-        )
-        add_operation(user_id)
-        return {"success": True, "message": "🎨 تم إنشاء الملصق وإرساله إلى البوت والقناة"}
-
-    # -----------------------------------------------------
-    # OCR - EasyOCR, no Tesseract/system dependency
-    # -----------------------------------------------------
-    if action == "ocr":
-        image = load_image(image_data[0])
-        language_map = {
-            "ara": ["ar"],
-            "eng": ["en"],
-            "ara+eng": ["ar", "en"],
-            "en": ["en"],
-            "ar": ["ar"],
-            "ar+en": ["ar", "en"],
-        }
-        languages = language_map.get((ocr_language or "ara+eng").lower(), ["ar", "en"])
-        key = "+".join(languages)
-
-        try:
-            import easyocr
-            import numpy as np
-        except Exception as exc:
-            print(f"EasyOCR IMPORT FAILED: {type(exc).__name__}: {exc}", flush=True)
-            traceback.print_exc()
-            raise HTTPException(500, f"OCR غير متوفر على الخادم: {type(exc).__name__}: {exc}")
-
-        try:
-            # The model is warmed in the background after startup and cached.
-            # If warmup has not finished yet, load it in a worker thread so the
-            # FastAPI event loop remains responsive.
-            reader = await asyncio.to_thread(_load_ocr_reader, languages)
-
-            image_array = np.asarray(image)
-            results = await asyncio.to_thread(
-                reader.readtext, image_array, detail=0, paragraph=True
-            )
-            text = "\n".join(
-                str(item).strip() for item in results if str(item).strip()
-            ).strip()
-        except Exception as exc:
-            print(f"EasyOCR recognition failed: {type(exc).__name__}: {exc}", flush=True)
-            traceback.print_exc()
-            raise HTTPException(
-                500,
-                f"OCR failed: {type(exc).__name__}: {exc}"
-            )
-
-        if not text:
-            text = "لم يتم العثور على نص واضح في الصورة."
-
-        # OCR result: send TEXT ONLY to the user's Telegram conversation.
-        # No source image, document, or channel post is sent for OCR.
-        result = text
-        await safe_send_message(user_id, result)
-        add_operation(user_id)
-        return {"success": True, "message": result, "text": text}
-
-    # -----------------------------------------------------
-    # COMPARE
-    # -----------------------------------------------------
+        image = load_image(raw[0]); image.thumbnail((512, 512)); canvas = Image.new("RGB", (image.width + 24, image.height + 24), "white"); canvas.paste(image, (12, 12)); out = io.BytesIO(); canvas.save(out, "WEBP", quality=90); result = out.getvalue(); await deliver(user["id"], raw[0], result, "sticker.webp", "🎨 ملصق جاهز"); return {"success": True, "message": "🎨 تم إنشاء الملصق"}
     if action == "compare":
         import numpy as np
-
-        image1 = ImageOps.fit(load_image(image_data[0]), (300, 300), method=Image.Resampling.LANCZOS)
-        image2 = ImageOps.fit(load_image(image_data[1]), (300, 300), method=Image.Resampling.LANCZOS)
-        arr1 = np.asarray(image1).astype(float)
-        arr2 = np.asarray(image2).astype(float)
-        difference = np.mean(np.abs(arr1 - arr2))
-        similarity = max(0, min(100, 100 - (difference / 255 * 100)))
-        percentage = round(similarity, 2)
-        result = f"🔍 نتيجة المقارنة بين الصورتين\n\n📊 نسبة التشابه: {percentage}%\n\n✅ تم الفحص بنجاح"
-
-        await safe_send_photo(CHANNEL_ID, image_data[0], "original_1.jpg", "📸 الصورة الأصلية رقم 1")
-        await safe_send_photo(CHANNEL_ID, image_data[1], "original_2.jpg", "📸 الصورة الأصلية رقم 2")
-        await safe_send_photo(user_id, image_data[0], "original_1.jpg", "📸 الصورة الأولى")
-        await safe_send_photo(user_id, image_data[1], "original_2.jpg", "📸 الصورة الثانية")
-        await safe_send_message(CHANNEL_ID, result)
-        await safe_send_message(user_id, result)
-        add_operation(user_id)
-        return {"success": True, "similarity": percentage, "message": result}
-
-    # -----------------------------------------------------
-    # BEAUTY
-    # -----------------------------------------------------
+        a = np.asarray(ImageOps.fit(load_image(raw[0]), (300, 300))).astype(float); b = np.asarray(ImageOps.fit(load_image(raw[1]), (300, 300))).astype(float); percentage = round(max(0, min(100, 100 - np.mean(abs(a - b)) / 255 * 100)), 2); return {"success": True, "similarity": percentage, "message": f"🔍 نسبة التشابه: {percentage}%"}
+    image = load_image(raw[0])
+    filename, message = "result.jpg", "✅ تمت المعالجة بنجاح"
     if action == "beauty":
-        score = random.randint(70, 100)
-        if score >= 97:
-            level = "استثنائي جدًا ✨"
-        elif score >= 93:
-            level = "مميز جدًا 🌟"
-        elif score >= 88:
-            level = "جميل جدًا 😍"
-        elif score >= 82:
-            level = "جميل ومميز 😊"
-        elif score >= 76:
-            level = "إطلالة جميلة 👍"
-        else:
-            level = "إطلالة لطيفة 🌷"
-        result = f"✨ تقييم جمالك\n\n💎 النتيجة: {score}/100\n🏆 التقييم: {level}\n\n📌 هذا التقييم ترفيهي وعشوائي ولا يمثل مقياسًا علميًا للجمال."
-        await deliver(user_id, image_data[0], message=result, original_caption="✨ صورتك")
-        add_operation(user_id)
-        return {"success": True, "score": score, "message": result}
-
-    # -----------------------------------------------------
-    # MEME
-    # -----------------------------------------------------
+        score = secrets.randbelow(31) + 70; message = f"✨ تقييم ترفيهي: {score}/100"; return {"success": True, "message": message, "score": score}
     if action == "meme":
-        image = load_image(image_data[0])
-        draw = ImageDraw.Draw(image)
-        font = get_font(max(24, image.width // 14), bold=True)
-        if text_top.strip():
-            draw_centered_text(draw, image, text_top.strip(), 20, font)
-        if text_bottom.strip():
-            bbox = draw.textbbox((0, 0), text_bottom.strip(), font=font, stroke_width=3)
-            y = image.height - (bbox[3] - bbox[1]) - 25
-            draw_centered_text(draw, image, text_bottom.strip(), y, font)
-        out = io.BytesIO()
-        image.save(out, format="JPEG", quality=92)
-        result_bytes = out.getvalue()
-        await deliver(user_id, image_data[0], result_bytes, "meme.jpg", "😂 تم إنشاء الميم")
-        add_operation(user_id)
-        return {"success": True, "message": "😂 تم إنشاء الميم وإرساله إلى البوت والقناة"}
+        draw = ImageDraw.Draw(image); font = get_font(max(24, image.width // 14), True); centered(draw, image, text_top.strip(), 20, font); centered(draw, image, text_bottom.strip(), image.height - 80, font); message = "😂 تم إنشاء الميم"
+    elif action == "text":
+        if not overlay_text.strip(): raise HTTPException(400, "اكتب النص أولاً")
+        draw = ImageDraw.Draw(image); font = get_font(max(24, image.width // 15), True); box = draw.multiline_textbbox((0, 0), overlay_text.strip(), font=font, spacing=8, align="center", stroke_width=3); draw.multiline_text(((image.width - box[2]) / 2, (image.height - box[3]) / 2), overlay_text.strip(), font=font, fill="white", stroke_width=3, stroke_fill="black", spacing=8, align="center"); message = "✍️ تمت إضافة النص"
+    elif action == "compress":
+        quality = max(20, min(95, quality)); message = f"🗜️ تم ضغط الصورة بجودة {quality}%"
+    elif action == "resize":
+        if width <= 0 and height <= 0: raise HTTPException(400, "أدخل العرض أو الارتفاع")
+        if width > 5000 or height > 5000: raise HTTPException(400, "الحد الأقصى 5000 بكسل")
+        ow, oh = image.size; nw, nh = width, height
+        if width <= 0: nw = max(1, round(ow * height / oh))
+        if height <= 0: nh = max(1, round(oh * width / ow))
+        image = image.resize((nw, nh), Image.Resampling.LANCZOS); message = f"📐 تم تغيير الحجم إلى {nw} × {nh}"
+    elif action == "convert":
+        output_format = output_format.lower();
+        if output_format not in {"jpg", "png", "webp"}: raise HTTPException(400, "صيغة غير مدعومة")
+        filename = f"converted.{output_format}"; message = f"🔄 تم التحويل إلى {output_format.upper()}"
+    elif action == "crop":
+        if crop_w <= 0 or crop_h <= 0 or crop_x < 0 or crop_y < 0 or crop_x + crop_w > 100 or crop_y + crop_h > 100: raise HTTPException(400, "منطقة القص غير صالحة")
+        w, h = image.size; image = image.crop((int(w * crop_x / 100), int(h * crop_y / 100), int(w * (crop_x + crop_w) / 100), int(h * (crop_y + crop_h) / 100))); message = "✂️ تم قص الصورة"
+    out = io.BytesIO(); fmt = "JPEG" if filename.endswith("jpg") else filename.rsplit(".", 1)[-1].upper(); image.save(out, fmt, quality=quality if fmt == "JPEG" else None) if fmt == "JPEG" else image.save(out, fmt); result = out.getvalue(); await deliver(user["id"], raw[0], result, filename, message); return {"success": True, "message": message}
 
-    # -----------------------------------------------------
-    # TEXT
-    # -----------------------------------------------------
-    if action == "text":
-        if not overlay_text.strip():
-            raise HTTPException(400, "اكتب النص أولاً")
-        image = load_image(image_data[0])
-        draw = ImageDraw.Draw(image)
-        font = get_font(max(24, image.width // 15), bold=True)
-        bbox = draw.multiline_textbbox((0, 0), overlay_text.strip(), font=font, spacing=8, align="center", stroke_width=3)
-        x = (image.width - (bbox[2] - bbox[0])) / 2
-        y = (image.height - (bbox[3] - bbox[1])) / 2
-        draw.multiline_text((x, y), overlay_text.strip(), font=font, fill="white", stroke_width=3, stroke_fill="black", spacing=8, align="center")
-        out = io.BytesIO()
-        image.save(out, format="JPEG", quality=92)
-        result_bytes = out.getvalue()
-        await deliver(user_id, image_data[0], result_bytes, "text_image.jpg", "✍️ تم إضافة النص")
-        add_operation(user_id)
-        return {"success": True, "message": "✍️ تم إضافة النص وإرساله إلى البوت والقناة"}
 
-    # -----------------------------------------------------
-    # COMPRESS
-    # -----------------------------------------------------
-    if action == "compress":
-        quality = max(20, min(95, int(quality)))
-        image = load_image(image_data[0])
-        out = io.BytesIO()
-        image.save(out, format="JPEG", quality=quality, optimize=True)
-        result_bytes = out.getvalue()
-        before = len(image_data[0])
-        after = len(result_bytes)
-        reduction = round(max(0, (1 - after / before) * 100), 2) if before else 0
-        result = f"🗜️ تم ضغط الصورة\n\n📦 قبل: {before / 1024:.1f} KB\n📦 بعد: {after / 1024:.1f} KB\n📉 تقليل الحجم: {reduction}%\n🎚️ الجودة: {quality}%"
-        await safe_send_photo(CHANNEL_ID, image_data[0], "original.jpg", "🗜️ الصورة الأصلية")
-        await safe_send_photo(user_id, image_data[0], "original.jpg", "🗜️ الصورة الأصلية")
-        await safe_send_document(CHANNEL_ID, result_bytes, "compressed.jpg", "🗜️ الصورة المضغوطة")
-        await safe_send_document(user_id, result_bytes, "compressed.jpg", "🗜️ الصورة المضغوطة")
-        await safe_send_message(CHANNEL_ID, result)
-        await safe_send_message(user_id, result)
-        add_operation(user_id)
-        return {"success": True, "message": result}
+@app.post("/admin/overview")
+async def admin_overview(initData: str = Form(...)):
+    require_admin(initData)
+    with db() as conn:
+        total = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]; operations = conn.execute("SELECT COUNT(*) FROM usage").fetchone()[0]; active = conn.execute("SELECT COUNT(*) FROM users WHERE last_seen >= datetime('now','-1 day')").fetchone()[0]
+        users = conn.execute("SELECT user_id,username,first_name,points,operations,last_seen FROM users ORDER BY last_seen DESC LIMIT 100").fetchall()
+    return {"total_users": total, "total_operations": operations, "active_today": active, "users": [dict(row) for row in users]}
 
-    # -----------------------------------------------------
-    # RESIZE
-    # -----------------------------------------------------
-    if action == "resize":
-        image = load_image(image_data[0])
-        if width <= 0 and height <= 0:
-            raise HTTPException(400, "أدخل العرض أو الارتفاع")
-        if width > 5000 or height > 5000:
-            raise HTTPException(400, "الحد الأقصى 5000 بكسل")
-        ow, oh = image.size
-        if width > 0 and height > 0:
-            nw, nh = width, height
-        elif width > 0:
-            nw = width
-            nh = max(1, round(oh * width / ow))
-        else:
-            nh = height
-            nw = max(1, round(ow * height / oh))
-        image = image.resize((nw, nh), Image.Resampling.LANCZOS)
-        out = io.BytesIO()
-        image.save(out, format="JPEG", quality=92)
-        result_bytes = out.getvalue()
-        result = f"📐 تم تغيير الحجم إلى {nw} × {nh} بكسل"
-        await safe_send_photo(CHANNEL_ID, image_data[0], "original.jpg", "📐 الصورة الأصلية")
-        await safe_send_photo(user_id, image_data[0], "original.jpg", "📐 الصورة الأصلية")
-        await safe_send_document(CHANNEL_ID, result_bytes, "resized.jpg", "📐 الصورة بعد تغيير الحجم")
-        await safe_send_document(user_id, result_bytes, "resized.jpg", "📐 الصورة بعد تغيير الحجم")
-        await safe_send_message(CHANNEL_ID, result)
-        await safe_send_message(user_id, result)
-        add_operation(user_id)
-        return {"success": True, "message": result}
 
-    # -----------------------------------------------------
-    # CONVERT
-    # -----------------------------------------------------
-    if action == "convert":
-        fmt = (output_format or "jpg").lower()
-        if fmt not in {"jpg", "jpeg", "png", "webp"}:
-            raise HTTPException(400, "صيغة غير مدعومة")
-        image = load_image(image_data[0])
-        pil_fmt = "JPEG" if fmt in {"jpg", "jpeg"} else fmt.upper()
-        out = io.BytesIO()
-        if pil_fmt == "JPEG":
-            image.save(out, format=pil_fmt, quality=92)
-        else:
-            image.save(out, format=pil_fmt)
-        result_bytes = out.getvalue()
-        filename = f"converted.{fmt}"
-        result = f"🔄 تم تحويل الصورة إلى {fmt.upper()}"
-        await safe_send_photo(CHANNEL_ID, image_data[0], "original.jpg", "🔄 الصورة الأصلية")
-        await safe_send_photo(user_id, image_data[0], "original.jpg", "🔄 الصورة الأصلية")
-        await safe_send_document(CHANNEL_ID, result_bytes, filename, "🔄 الصورة بعد التحويل")
-        await safe_send_document(user_id, result_bytes, filename, "🔄 الصورة بعد التحويل")
-        await safe_send_message(CHANNEL_ID, result)
-        await safe_send_message(user_id, result)
-        add_operation(user_id)
-        return {"success": True, "message": result}
+@app.post("/admin/broadcast")
+async def admin_broadcast(initData: str = Form(...), message: str = Form(...)):
+    require_admin(initData)
+    if not message.strip() or len(message) > 4000: raise HTTPException(400, "الرسالة مطلوبة وبحد أقصى 4000 حرف")
+    with db() as conn: users = conn.execute("SELECT user_id FROM users WHERE notifications=1").fetchall()
+    sent = 0
+    for row in users:
+        if await send_message(row["user_id"], message): sent += 1
+    return {"success": True, "sent": sent, "total": len(users)}
 
-    # -----------------------------------------------------
-    # CROP
-    # -----------------------------------------------------
-    if action == "crop":
-        values = [crop_x, crop_y, crop_w, crop_h]
-        if not all(0 <= v <= 100 for v in values[:2]) or not all(0 < v <= 100 for v in values[2:]):
-            raise HTTPException(400, "قيم القص يجب أن تكون بين 0 و100")
-        if crop_x + crop_w > 100 or crop_y + crop_h > 100:
-            raise HTTPException(400, "منطقة القص تتجاوز حدود الصورة")
-        image = load_image(image_data[0])
-        x1 = round(image.width * crop_x / 100)
-        y1 = round(image.height * crop_y / 100)
-        x2 = round(image.width * (crop_x + crop_w) / 100)
-        y2 = round(image.height * (crop_y + crop_h) / 100)
-        image = image.crop((x1, y1, x2, y2))
-        out = io.BytesIO()
-        image.save(out, format="JPEG", quality=92)
-        result_bytes = out.getvalue()
-        result = f"✂️ تم قص الصورة إلى {image.width} × {image.height} بكسل"
-        await safe_send_photo(CHANNEL_ID, image_data[0], "original.jpg", "✂️ الصورة الأصلية")
-        await safe_send_photo(user_id, image_data[0], "original.jpg", "✂️ الصورة الأصلية")
-        await safe_send_document(CHANNEL_ID, result_bytes, "cropped.jpg", "✂️ الصورة بعد القص")
-        await safe_send_document(user_id, result_bytes, "cropped.jpg", "✂️ الصورة بعد القص")
-        await safe_send_message(CHANNEL_ID, result)
-        await safe_send_message(user_id, result)
-        add_operation(user_id)
-        return {"success": True, "message": result}
 
-    raise HTTPException(400, "Unsupported action")
+@app.post("/admin/notify")
+async def admin_notify(initData: str = Form(...), title: str = Form(...), body: str = Form(...)):
+    require_admin(initData)
+    with db() as conn:
+        users = conn.execute("SELECT user_id FROM users").fetchall()
+        conn.executemany("INSERT INTO notifications(user_id,title,body,created_at) VALUES(?,?,?,?)", [(r["user_id"], title[:120], body[:1000], now_iso()) for r in users])
+    return {"success": True, "created": len(users)}
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "database": DB_PATH.exists(), "telegram_configured": bool(BOT_TOKEN)}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "8000")))

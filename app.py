@@ -4,6 +4,7 @@ import json
 import random
 import traceback
 import threading
+import asyncio
 from urllib.parse import parse_qsl
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
@@ -61,6 +62,44 @@ bot = Bot(token=BOT_TOKEN)
 # EasyOCR is heavy. Load each language combination once and reuse it.
 _OCR_READERS = {}
 _OCR_LOCK = threading.Lock()
+_OCR_WARMUP_ERROR = None
+
+
+def _load_ocr_reader(languages):
+    """Load/cache an EasyOCR reader in a worker thread."""
+    global _OCR_WARMUP_ERROR
+    import easyocr
+
+    key = "+".join(languages)
+    if key in _OCR_READERS:
+        return _OCR_READERS[key]
+
+    with _OCR_LOCK:
+        if key in _OCR_READERS:
+            return _OCR_READERS[key]
+        print(f"EasyOCR loading model: {languages}", flush=True)
+        reader = easyocr.Reader(languages, gpu=False, verbose=False)
+        _OCR_READERS[key] = reader
+        _OCR_WARMUP_ERROR = None
+        print(f"EasyOCR model ready: {languages}", flush=True)
+        return reader
+
+
+async def _warmup_ocr():
+    """Warm the default Arabic+English model after the web server starts."""
+    global _OCR_WARMUP_ERROR
+    try:
+        await asyncio.to_thread(_load_ocr_reader, ["ar", "en"])
+    except Exception as exc:
+        _OCR_WARMUP_ERROR = f"{type(exc).__name__}: {exc}"
+        print(f"EasyOCR warmup failed: {_OCR_WARMUP_ERROR}", flush=True)
+        traceback.print_exc()
+
+
+@app.on_event("startup")
+async def startup_ocr_warmup():
+    # Do not block FastAPI startup while model files are downloaded.
+    asyncio.create_task(_warmup_ocr())
 
 
 # ---------------------------------------------------------
@@ -164,7 +203,12 @@ async def safe_send_document(chat_id, data: bytes, filename="result.bin", captio
 
 async def safe_send_message(chat_id, text):
     try:
-        await bot.send_message(chat_id=chat_id, text=text)
+        text = str(text)
+        # Telegram text messages are limited to 4096 characters.
+        # Keep OCR output intact by splitting long results into ordered chunks.
+        chunks = [text[i:i + 4000] for i in range(0, len(text), 4000)] or [""]
+        for chunk in chunks:
+            await bot.send_message(chat_id=chat_id, text=chunk)
         return True
     except Exception as exc:
         print(f"Telegram send_message failed for {chat_id}: {exc}")
@@ -313,19 +357,14 @@ async def process(
             raise HTTPException(500, f"OCR غير متوفر على الخادم: {type(exc).__name__}: {exc}")
 
         try:
-            # Reader creation downloads the required model once, then it is cached.
-            if key not in _OCR_READERS:
-                with _OCR_LOCK:
-                    if key not in _OCR_READERS:
-                        print(f"EasyOCR loading model: {languages}", flush=True)
-                        _OCR_READERS[key] = easyocr.Reader(
-                            languages, gpu=False, verbose=False
-                        )
-                        print(f"EasyOCR model ready: {languages}", flush=True)
+            # The model is warmed in the background after startup and cached.
+            # If warmup has not finished yet, load it in a worker thread so the
+            # FastAPI event loop remains responsive.
+            reader = await asyncio.to_thread(_load_ocr_reader, languages)
 
             image_array = np.asarray(image)
-            results = _OCR_READERS[key].readtext(
-                image_array, detail=0, paragraph=True
+            results = await asyncio.to_thread(
+                reader.readtext, image_array, detail=0, paragraph=True
             )
             text = "\n".join(
                 str(item).strip() for item in results if str(item).strip()
@@ -341,10 +380,9 @@ async def process(
         if not text:
             text = "لم يتم العثور على نص واضح في الصورة."
 
-        result = "🔤 النص المستخرج من الصورة\n\n" + text
-        await safe_send_photo(CHANNEL_ID, image_data[0], "ocr_original.jpg", "🔤 صورة لفحص OCR")
-        await safe_send_photo(user_id, image_data[0], "ocr_original.jpg", "🔤 صورتك")
-        await safe_send_message(CHANNEL_ID, result)
+        # OCR result: send TEXT ONLY to the user's Telegram conversation.
+        # No source image, document, or channel post is sent for OCR.
+        result = text
         await safe_send_message(user_id, result)
         add_operation(user_id)
         return {"success": True, "message": result, "text": text}

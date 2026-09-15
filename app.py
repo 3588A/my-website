@@ -10,7 +10,7 @@ import traceback
 from collections import defaultdict, deque
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import parse_qsl
+from urllib.parse import parse_qsl, urlparse
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -450,17 +450,32 @@ async def telegram_webhook(request: Request):
     return {"ok": True}
 
 
+def channel_username_from_url(channel_url: str):
+    parsed = urlparse(channel_url.strip())
+    if parsed.scheme != "https" or parsed.netloc.lower() not in {"t.me", "www.t.me"}:
+        raise HTTPException(400, "أدخل رابط قناة Telegram صحيحًا مثل https://t.me/channel_name")
+    path = parsed.path.strip("/")
+    if not path or path.startswith(("+", "joinchat/")):
+        raise HTTPException(400, "استخدم رابط قناة عامة مثل https://t.me/channel_name؛ روابط الدعوة الخاصة تحتاج معرّف القناة")
+    username = path.split("/")[0]
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{3,31}", username):
+        raise HTTPException(400, "رابط القناة غير صالح")
+    return "@" + username
+
+
 @app.post("/admin/subscription")
 async def admin_subscription(
-    initData: str = Form(...), enabled: str = Form("0"), channel_id: str = Form(""), channel_url: str = Form("")
+    initData: str = Form(...), enabled: str = Form("0"), channel_url: str = Form("")
 ):
     require_admin(initData)
-    if enabled == "1" and (not channel_id.strip() or not channel_url.startswith("https://t.me/")):
-        raise HTTPException(400, "أدخل معرّف القناة ورابط t.me صحيحًا")
+    channel_url = channel_url.strip()
+    channel_id = channel_username_from_url(channel_url) if channel_url else ""
+    if enabled == "1" and not channel_url:
+        raise HTTPException(400, "أدخل رابط القناة أولاً")
     set_setting("force_sub_enabled", "1" if enabled == "1" else "0")
-    set_setting("force_sub_channel_id", channel_id.strip())
-    set_setting("force_sub_url", channel_url.strip())
-    return {"success": True, "enabled": enabled == "1", "channel_id": channel_id.strip(), "channel_url": channel_url.strip()}
+    set_setting("force_sub_channel_id", channel_id)
+    set_setting("force_sub_url", channel_url)
+    return {"success": True, "enabled": enabled == "1", "channel_url": channel_url, "channel": channel_id}
 
 
 @app.post("/subscription/status")

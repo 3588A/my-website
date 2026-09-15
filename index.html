@@ -62,6 +62,12 @@ body{
     box-shadow:0 3px 12px #0000000b
 }
 
+.tool:disabled,
+.btn:disabled{
+    opacity:.55;
+    cursor:not-allowed
+}
+
 .tool.active{
     background:var(--tg-theme-button-color,#2481cc);
     color:var(--tg-theme-button-text-color,#fff)
@@ -150,6 +156,15 @@ label{
     aspect-ratio:1;
     border-radius:15px;
     object-fit:cover
+}
+
+.file-info{
+    grid-column:1 / -1;
+    font-size:12px;
+    opacity:.7;
+    text-align:center;
+    line-height:1.6;
+    white-space:pre-line
 }
 
 .status{
@@ -358,7 +373,7 @@ label{
 
     </div>
 
-    <div id="status" class="status"></div>
+    <div id="status" class="status" role="status" aria-live="polite"></div>
 
     <div class="card">
 
@@ -413,6 +428,9 @@ const API = "https://my-website.fastapicloud.dev";
 
 let action = "sticker";
 let selectedFiles = [];
+let previewUrls = [];
+let isProcessing = false;
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
 
 /* =========================================================
@@ -479,6 +497,9 @@ const configs = {
 ========================================================= */
 
 function setAction(a){
+
+    if(isProcessing)
+        return;
 
     action = a;
 
@@ -776,6 +797,18 @@ function handleFiles(files){
     if(!files.length)
         return;
 
+    const invalid = files.find(file =>
+        !file.type.startsWith("image/") || file.size > MAX_FILE_SIZE
+    );
+
+    if(invalid){
+        showStatus(
+            `❌ الملف «${invalid.name}» غير صالح. اختر صورة لا تتجاوز 10 MB.`,
+            "error"
+        );
+        return;
+    }
+
     const need =
         action === "compare" ? 2 : 1;
 
@@ -816,6 +849,8 @@ function renderPreview(){
     const p =
         document.getElementById("preview");
 
+    previewUrls.forEach(url => URL.revokeObjectURL(url));
+    previewUrls = [];
     p.innerHTML = "";
 
 
@@ -825,8 +860,9 @@ function renderPreview(){
             const img =
                 document.createElement("img");
 
-            img.src =
-                URL.createObjectURL(file);
+            const url = URL.createObjectURL(file);
+            previewUrls.push(url);
+            img.src = url;
 
             img.alt =
                 "preview " + (i + 1);
@@ -836,6 +872,14 @@ function renderPreview(){
         }
     );
 
+    if(selectedFiles.length){
+        const info = document.createElement("div");
+        info.className = "file-info";
+        info.textContent = selectedFiles
+            .map(file => `${file.name} — ${formatBytes(file.size)}`)
+            .join("\n");
+        p.appendChild(info);
+    }
 
     if(selectedFiles.length){
 
@@ -904,6 +948,8 @@ async function sendImages(){
         return;
 
 
+    isProcessing = true;
+    setControlsDisabled(true);
     showLoading(true);
 
     hideStatus();
@@ -1176,6 +1222,8 @@ async function sendImages(){
     finally{
 
         showLoading(false);
+        isProcessing = false;
+        setControlsDisabled(false);
 
     }
 }
@@ -1252,6 +1300,18 @@ async function loadStats(){
    Loading
 ========================================================= */
 
+function setControlsDisabled(value){
+    document.querySelectorAll(".tool, .btn").forEach(control => {
+        control.disabled = value;
+    });
+}
+
+function formatBytes(bytes){
+    if(bytes < 1024) return `${bytes} B`;
+    if(bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 function showLoading(value){
 
     document
@@ -1310,6 +1370,8 @@ window.addEventListener(
     () => {
 
         selectedFiles = [];
+        previewUrls.forEach(url => URL.revokeObjectURL(url));
+        previewUrls = [];
 
     }
 );

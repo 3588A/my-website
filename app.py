@@ -258,7 +258,7 @@ async def process(
             user_id, image_data[0], result_bytes, "sticker.webp", "🎨 تم إنشاء الملصق"
         )
         add_operation(user_id)
-        return {"success": True, "message": "🎨 تم إنشاء الملصق وإرساله إلى البوت والقناة"}
+        return {"success": True, "message": "🎨 تم إنشاء الملصق وإرساله إلى البوت "}
 
     # -----------------------------------------------------
     # OCR - local, no external API
@@ -388,7 +388,7 @@ async def process(
         result_bytes = out.getvalue()
         await deliver(user_id, image_data[0], result_bytes, "meme.jpg", "😂 تم إنشاء الميم")
         add_operation(user_id)
-        return {"success": True, "message": "😂 تم إنشاء الميم وإرساله إلى البوت والقناة"}
+        return {"success": True, "message": "😂 تم إنشاء الميم وإرساله إلى البوت "}
 
     # -----------------------------------------------------
     # TEXT
@@ -408,7 +408,7 @@ async def process(
         result_bytes = out.getvalue()
         await deliver(user_id, image_data[0], result_bytes, "text_image.jpg", "✍️ تم إضافة النص")
         add_operation(user_id)
-        return {"success": True, "message": "✍️ تم إضافة النص وإرساله إلى البوت والقناة"}
+        return {"success": True, "message": "✍️ تم إضافة النص وإرساله إلى البوت "}
 
     # -----------------------------------------------------
     # COMPRESS

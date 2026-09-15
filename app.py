@@ -3,6 +3,7 @@ import os
 import json
 import random
 import traceback
+import threading
 from urllib.parse import parse_qsl
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
@@ -29,7 +30,22 @@ app.add_middleware(
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
-    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+    detail = exc.detail
+    if isinstance(detail, (dict, list)):
+        detail = json.dumps(detail, ensure_ascii=False)
+    else:
+        detail = str(detail)
+    return JSONResponse(status_code=exc.status_code, content={"detail": detail})
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    print(f"UNHANDLED ERROR: {type(exc).__name__}: {exc}", flush=True)
+    traceback.print_exc()
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Server error: {type(exc).__name__}: {exc}"},
+    )
 
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -41,6 +57,10 @@ if not CHANNEL_ID:
     raise RuntimeError("CHANNEL_ID is not configured")
 
 bot = Bot(token=BOT_TOKEN)
+
+# EasyOCR is heavy. Load each language combination once and reuse it.
+_OCR_READERS = {}
+_OCR_LOCK = threading.Lock()
 
 
 # ---------------------------------------------------------
@@ -183,24 +203,32 @@ VALID_ACTIONS = SINGLE_IMAGE_ACTIONS + ["compare"]
 
 @app.get("/ocr-check")
 async def ocr_check():
-    """تشخيص OCR بدون رفع صورة وبدون إرسال أي شيء إلى Telegram."""
+    """تشخيص EasyOCR و PyTorch بدون رفع صورة."""
     result = {
-        "pytesseract": False,
-        "tesseract_engine": False,
-        "languages": [],
+        "easyocr": False,
+        "torch": False,
+        "torchvision": False,
+        "models_loaded": list(_OCR_READERS.keys()),
         "error": None,
     }
     try:
-        import pytesseract
-        result["pytesseract"] = True
-        result["pytesseract_version"] = getattr(pytesseract, "__version__", "unknown")
-        result["tesseract_version"] = str(pytesseract.get_tesseract_version())
-        result["tesseract_engine"] = True
-        result["languages"] = pytesseract.get_languages(config="")
+        import easyocr
+        result["easyocr"] = True
+        result["easyocr_version"] = getattr(easyocr, "__version__", "unknown")
+        import torch
+        result["torch"] = True
+        result["torch_version"] = getattr(torch, "__version__", "unknown")
+        result["cuda_available"] = bool(torch.cuda.is_available())
+        try:
+            import torchvision
+            result["torchvision"] = True
+            result["torchvision_version"] = getattr(torchvision, "__version__", "unknown")
+        except Exception as exc:
+            result["torchvision_error"] = f"{type(exc).__name__}: {exc}"
         return result
     except Exception as exc:
         result["error"] = f"{type(exc).__name__}: {exc}"
-        print("OCR CHECK FAILED", flush=True)
+        print("EASYOCR CHECK FAILED", flush=True)
         traceback.print_exc()
         return JSONResponse(status_code=500, content=result)
 
@@ -264,11 +292,6 @@ async def process(
     # OCR - EasyOCR, no Tesseract/system dependency
     # -----------------------------------------------------
     if action == "ocr":
-        try:
-            import easyocr
-        except Exception as exc:
-            raise HTTPException(500, f"OCR غير متوفر: EasyOCR غير مثبت. التفاصيل: {type(exc).__name__}: {exc}")
-
         image = load_image(image_data[0])
         language_map = {
             "ara": ["ar"],
@@ -279,17 +302,41 @@ async def process(
             "ar+en": ["ar", "en"],
         }
         languages = language_map.get((ocr_language or "ara+eng").lower(), ["ar", "en"])
+        key = "+".join(languages)
 
         try:
+            import easyocr
             import numpy as np
+        except Exception as exc:
+            print(f"EasyOCR IMPORT FAILED: {type(exc).__name__}: {exc}", flush=True)
+            traceback.print_exc()
+            raise HTTPException(500, f"OCR غير متوفر على الخادم: {type(exc).__name__}: {exc}")
+
+        try:
+            # Reader creation downloads the required model once, then it is cached.
+            if key not in _OCR_READERS:
+                with _OCR_LOCK:
+                    if key not in _OCR_READERS:
+                        print(f"EasyOCR loading model: {languages}", flush=True)
+                        _OCR_READERS[key] = easyocr.Reader(
+                            languages, gpu=False, verbose=False
+                        )
+                        print(f"EasyOCR model ready: {languages}", flush=True)
+
             image_array = np.asarray(image)
-            # EasyOCR supports Arabic and English language models.
-            reader = easyocr.Reader(languages, gpu=False, verbose=False)
-            results = reader.readtext(image_array, detail=0, paragraph=True)
-            text = "\n".join(str(item).strip() for item in results if str(item).strip()).strip()
+            results = _OCR_READERS[key].readtext(
+                image_array, detail=0, paragraph=True
+            )
+            text = "\n".join(
+                str(item).strip() for item in results if str(item).strip()
+            ).strip()
         except Exception as exc:
             print(f"EasyOCR recognition failed: {type(exc).__name__}: {exc}", flush=True)
-            raise HTTPException(500, f"OCR recognition error: فشل EasyOCR. التفاصيل: {type(exc).__name__}: {exc}")
+            traceback.print_exc()
+            raise HTTPException(
+                500,
+                f"OCR failed: {type(exc).__name__}: {exc}"
+            )
 
         if not text:
             text = "لم يتم العثور على نص واضح في الصورة."

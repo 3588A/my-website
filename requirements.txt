@@ -1,8 +1,7 @@
-fastapi[standard]
-uvicorn
+fastapi
+uvicorn[standard]
 python-multipart
 pillow
 python-telegram-bot
 numpy
-rembg
-onnxruntime
+pytesseract

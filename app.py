@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 from telegram import Bot
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
 APP_DIR = Path(__file__).resolve().parent
 DB_PATH = Path(os.getenv("DATABASE_PATH", APP_DIR / "bot.sqlite3"))
@@ -443,7 +443,7 @@ async def telegram_webhook(request: Request):
                    "3) ارفع الصورة أو الصور.\n"
                    "4) استلم النتيجة هنا في Telegram.\n\n"
                    "إذا ظهر طلب الاشتراك، اشترك في القناة ثم اضغط تحقق داخل التطبيق.")
-        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🚀 OPEN — فتح التطبيق", url=MINI_APP_URL)]])
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🚀 OPEN — فتح التطبيق", web_app=WebAppInfo(url=MINI_APP_URL))]])
         await Bot(BOT_TOKEN).send_message(chat_id=chat_id, text=welcome, reply_markup=keyboard)
     elif text in {"/help", "مساعدة"}:
         await Bot(BOT_TOKEN).send_message(chat_id=chat_id, text="اضغط /start لعرض طريقة الاستخدام وزر OPEN.")

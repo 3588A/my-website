@@ -44,7 +44,7 @@ app.add_middleware(
         "http://localhost:3000",
         "http://127.0.0.1:5500",
     ],
-    allow_origin_regex=r"https://3588a\.github\.io",
+    allow_origin_regex=r"(?i)^https://3588a\.github\.io$",
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -309,9 +309,10 @@ async def home():
 @app.post("/me")
 async def me(initData: str = Form(...)):
     user = current_user(initData)
-    await enforce_subscription(user["id"])
+    if user["id"] != ADMIN_USER_ID:
+        await enforce_subscription(user["id"])
     result = stats_for(user["id"])
-    result["subscription"] = await subscription_status(user["id"])
+    result["subscription"] = {"enabled": False, "subscribed": True, "url": ""} if user["id"] == ADMIN_USER_ID else await subscription_status(user["id"])
     return result
 
 

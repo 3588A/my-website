@@ -40,9 +40,11 @@ app.add_middleware(
     allow_origins=[
         "https://3588a.github.io",
         "https://3588A.github.io",
+        "https://my-website.fastapicloud.dev",
         "http://localhost:3000",
         "http://127.0.0.1:5500",
     ],
+    allow_origin_regex=r"https://3588a\.github\.io",
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],

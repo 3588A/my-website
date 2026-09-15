@@ -3,7 +3,4 @@ uvicorn[standard]
 python-multipart
 pillow
 python-telegram-bot
-numpy<2
-easyocr==1.7.2
-torch==2.6.0
-torchvision==0.21.0
+numpy

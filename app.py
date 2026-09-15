@@ -21,6 +21,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
 APP_DIR = Path(__file__).resolve().parent
 DB_PATH = Path(os.getenv("DATABASE_PATH", APP_DIR / "bot.sqlite3"))
+DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 CHANNEL_ID = os.getenv("CHANNEL_ID", "")
 ADMIN_USER_ID = 6931187332

@@ -2,6 +2,7 @@ import io
 import os
 import json
 import random
+import traceback
 from urllib.parse import parse_qsl
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
@@ -180,6 +181,30 @@ SINGLE_IMAGE_ACTIONS = [
 VALID_ACTIONS = SINGLE_IMAGE_ACTIONS + ["compare"]
 
 
+@app.get("/ocr-check")
+async def ocr_check():
+    """تشخيص OCR بدون رفع صورة وبدون إرسال أي شيء إلى Telegram."""
+    result = {
+        "pytesseract": False,
+        "tesseract_engine": False,
+        "languages": [],
+        "error": None,
+    }
+    try:
+        import pytesseract
+        result["pytesseract"] = True
+        result["pytesseract_version"] = getattr(pytesseract, "__version__", "unknown")
+        result["tesseract_version"] = str(pytesseract.get_tesseract_version())
+        result["tesseract_engine"] = True
+        result["languages"] = pytesseract.get_languages(config="")
+        return result
+    except Exception as exc:
+        result["error"] = f"{type(exc).__name__}: {exc}"
+        print("OCR CHECK FAILED", flush=True)
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content=result)
+
+
 @app.post("/process")
 async def process(
     action: str = Form(...),
@@ -239,20 +264,54 @@ async def process(
     # OCR - local, no external API
     # -----------------------------------------------------
     if action == "ocr":
+        print("OCR DEBUG: starting OCR", flush=True)
+        print(f"OCR DEBUG: requested language = {ocr_language!r}", flush=True)
+
         try:
             import pytesseract
-        except Exception:
-            raise HTTPException(500, "OCR غير متوفر: أضف pytesseract إلى requirements.txt")
+        except Exception as exc:
+            print("OCR DEBUG: pytesseract IMPORT FAILED", flush=True)
+            print(f"OCR DEBUG: {type(exc).__name__}: {exc}", flush=True)
+            traceback.print_exc()
+            raise HTTPException(500, f"OCR Python package error: pytesseract غير مثبت. التفاصيل: {type(exc).__name__}: {exc}")
+
+        print(f"OCR DEBUG: pytesseract imported, version={getattr(pytesseract, '__version__', 'unknown')}", flush=True)
+
+        try:
+            version = pytesseract.get_tesseract_version()
+            print(f"OCR DEBUG: Tesseract engine detected: {version}", flush=True)
+        except Exception as exc:
+            print("OCR DEBUG: TESSERACT ENGINE CHECK FAILED", flush=True)
+            print(f"OCR DEBUG: {type(exc).__name__}: {exc}", flush=True)
+            traceback.print_exc()
+            raise HTTPException(500, f"OCR engine error: محرك Tesseract غير مثبت أو غير متاح على الخادم. التفاصيل: {type(exc).__name__}: {exc}")
+
+        try:
+            available_languages = pytesseract.get_languages(config="")
+            print(f"OCR DEBUG: available languages = {available_languages}", flush=True)
+        except Exception as exc:
+            print("OCR DEBUG: LANGUAGE LIST CHECK FAILED", flush=True)
+            print(f"OCR DEBUG: {type(exc).__name__}: {exc}", flush=True)
+            traceback.print_exc()
+            raise HTTPException(500, f"OCR language check failed: {type(exc).__name__}: {exc}")
+
+        requested = [x.strip() for x in (ocr_language or "ara+eng").split("+") if x.strip()]
+        missing = [x for x in requested if x not in available_languages]
+        if missing:
+            print(f"OCR DEBUG: missing language files = {missing}", flush=True)
+            raise HTTPException(500, f"OCR language error: ملفات اللغة غير متوفرة: {', '.join(missing)}. اللغات المتوفرة: {', '.join(available_languages) if available_languages else 'لا توجد'}")
 
         image = load_image(image_data[0])
+        print(f"OCR DEBUG: image loaded, size={image.size}", flush=True)
+
         try:
             text = pytesseract.image_to_string(image, lang=ocr_language or "ara+eng").strip()
+            print(f"OCR DEBUG: recognition completed, characters={len(text)}", flush=True)
         except Exception as exc:
-            print(f"OCR primary language failed: {exc}")
-            try:
-                text = pytesseract.image_to_string(image, lang="eng").strip()
-            except Exception as exc2:
-                raise HTTPException(500, "محرك OCR غير مثبت أو ملفات اللغة غير متوفرة على الخادم") from exc2
+            print("OCR DEBUG: RECOGNITION FAILED", flush=True)
+            print(f"OCR DEBUG: {type(exc).__name__}: {exc}", flush=True)
+            traceback.print_exc()
+            raise HTTPException(500, f"OCR recognition error: {type(exc).__name__}: {exc}")
 
         if not text:
             text = "لم يتم العثور على نص واضح في الصورة."

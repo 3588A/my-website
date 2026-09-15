@@ -4,4 +4,4 @@ python-multipart
 pillow
 python-telegram-bot
 numpy
-pytesseract
+easyocr

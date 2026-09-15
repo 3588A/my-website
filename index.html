@@ -3,103 +3,1325 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
 <title>🖼️ أدوات الصور</title>
+
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
 <style>
-*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-body{margin:0;min-height:100vh;font-family:Arial,sans-serif;background:var(--tg-theme-bg-color,#f2f4f7);color:var(--tg-theme-text-color,#17202a)}
-.container{max-width:620px;margin:auto;padding:18px}.header{text-align:center;margin:8px 0 20px}.title{font-size:28px;font-weight:800}.subtitle{font-size:13px;opacity:.68;margin-top:7px}
-.tools{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:16px}.tool{border:0;border-radius:18px;padding:15px 10px;background:var(--tg-theme-secondary-bg-color,#fff);color:inherit;font-size:15px;font-weight:700;box-shadow:0 3px 12px #0000000b}.tool.active{background:var(--tg-theme-button-color,#2481cc);color:var(--tg-theme-button-text-color,#fff)}
-.card{background:var(--tg-theme-secondary-bg-color,#fff);border-radius:22px;padding:18px;box-shadow:0 4px 18px #0000000b;margin-bottom:14px}.card h3{margin:0 0 7px;font-size:19px}.desc{font-size:13px;opacity:.65;margin-bottom:16px;line-height:1.6}
-.buttons{display:grid;grid-template-columns:1fr 1fr;gap:10px}.btn{border:0;border-radius:15px;padding:14px;font-size:15px;font-weight:700;background:var(--tg-theme-button-color,#2481cc);color:var(--tg-theme-button-text-color,#fff)}.btn.secondary{background:var(--tg-theme-secondary-bg-color,#e8e8e8);color:inherit;border:1px solid #00000012}
-input,select,textarea{width:100%;border:1px solid #00000015;border-radius:13px;padding:12px;margin:6px 0 10px;background:var(--tg-theme-bg-color,#fff);color:inherit;font-size:14px}textarea{min-height:90px;resize:vertical}label{display:block;font-size:13px;font-weight:700;margin-top:8px}
-.preview{display:none;margin-top:15px}.preview.show{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.preview img{width:100%;aspect-ratio:1;border-radius:15px;object-fit:cover}
-.status{display:none;padding:13px;border-radius:14px;text-align:center;white-space:pre-line;font-size:14px}.status.show{display:block}.success{color:#18794e;background:#e9f8f0}.error{color:#b42318;background:#fff0ee}
-.loading{display:none;text-align:center;padding:14px}.loading.show{display:block}.spinner{width:30px;height:30px;border:4px solid #ddd;border-top-color:var(--tg-theme-button-color,#2481cc);border-radius:50%;animation:spin .8s linear infinite;margin:auto}@keyframes spin{to{transform:rotate(360deg)}}
-.hidden{display:none}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}.stat{padding:12px;border-radius:14px;background:var(--tg-theme-bg-color,#f4f4f4);text-align:center}.stat b{display:block;font-size:20px}.stat span{font-size:11px;opacity:.65}.footer{text-align:center;font-size:11px;opacity:.5;padding:10px}
-@media(max-width:390px){.tools{grid-template-columns:1fr}.buttons{grid-template-columns:1fr}}
+*{
+    box-sizing:border-box;
+    -webkit-tap-highlight-color:transparent
+}
+
+body{
+    margin:0;
+    min-height:100vh;
+    font-family:Arial,sans-serif;
+    background:var(--tg-theme-bg-color,#f2f4f7);
+    color:var(--tg-theme-text-color,#17202a)
+}
+
+.container{
+    max-width:620px;
+    margin:auto;
+    padding:18px
+}
+
+.header{
+    text-align:center;
+    margin:8px 0 20px
+}
+
+.title{
+    font-size:28px;
+    font-weight:800
+}
+
+.subtitle{
+    font-size:13px;
+    opacity:.68;
+    margin-top:7px
+}
+
+.tools{
+    display:grid;
+    grid-template-columns:repeat(2,1fr);
+    gap:10px;
+    margin-bottom:16px
+}
+
+.tool{
+    border:0;
+    border-radius:18px;
+    padding:15px 10px;
+    background:var(--tg-theme-secondary-bg-color,#fff);
+    color:inherit;
+    font-size:15px;
+    font-weight:700;
+    box-shadow:0 3px 12px #0000000b
+}
+
+.tool.active{
+    background:var(--tg-theme-button-color,#2481cc);
+    color:var(--tg-theme-button-text-color,#fff)
+}
+
+.card{
+    background:var(--tg-theme-secondary-bg-color,#fff);
+    border-radius:22px;
+    padding:18px;
+    box-shadow:0 4px 18px #0000000b;
+    margin-bottom:14px
+}
+
+.card h3{
+    margin:0 0 7px;
+    font-size:19px
+}
+
+.desc{
+    font-size:13px;
+    opacity:.65;
+    margin-bottom:16px;
+    line-height:1.6
+}
+
+.buttons{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:10px
+}
+
+.btn{
+    border:0;
+    border-radius:15px;
+    padding:14px;
+    font-size:15px;
+    font-weight:700;
+    background:var(--tg-theme-button-color,#2481cc);
+    color:var(--tg-theme-button-text-color,#fff)
+}
+
+.btn.secondary{
+    background:var(--tg-theme-secondary-bg-color,#e8e8e8);
+    color:inherit;
+    border:1px solid #00000012
+}
+
+input,
+select,
+textarea{
+    width:100%;
+    border:1px solid #00000015;
+    border-radius:13px;
+    padding:12px;
+    margin:6px 0 10px;
+    background:var(--tg-theme-bg-color,#fff);
+    color:inherit;
+    font-size:14px
+}
+
+textarea{
+    min-height:90px;
+    resize:vertical
+}
+
+label{
+    display:block;
+    font-size:13px;
+    font-weight:700;
+    margin-top:8px
+}
+
+.preview{
+    display:none;
+    margin-top:15px
+}
+
+.preview.show{
+    display:grid;
+    grid-template-columns:repeat(2,1fr);
+    gap:10px
+}
+
+.preview img{
+    width:100%;
+    aspect-ratio:1;
+    border-radius:15px;
+    object-fit:cover
+}
+
+.status{
+    display:none;
+    padding:13px;
+    border-radius:14px;
+    text-align:center;
+    white-space:pre-line;
+    font-size:14px;
+    word-break:break-word
+}
+
+.status.show{
+    display:block
+}
+
+.success{
+    color:#18794e;
+    background:#e9f8f0
+}
+
+.error{
+    color:#b42318;
+    background:#fff0ee
+}
+
+.loading{
+    display:none;
+    text-align:center;
+    padding:14px
+}
+
+.loading.show{
+    display:block
+}
+
+.spinner{
+    width:30px;
+    height:30px;
+    border:4px solid #ddd;
+    border-top-color:var(--tg-theme-button-color,#2481cc);
+    border-radius:50%;
+    animation:spin .8s linear infinite;
+    margin:auto
+}
+
+@keyframes spin{
+    to{
+        transform:rotate(360deg)
+    }
+}
+
+.hidden{
+    display:none
+}
+
+.stats{
+    display:grid;
+    grid-template-columns:repeat(3,1fr);
+    gap:8px;
+    margin-top:10px
+}
+
+.stat{
+    padding:12px;
+    border-radius:14px;
+    background:var(--tg-theme-bg-color,#f4f4f4);
+    text-align:center
+}
+
+.stat b{
+    display:block;
+    font-size:20px
+}
+
+.stat span{
+    font-size:11px;
+    opacity:.65
+}
+
+.footer{
+    text-align:center;
+    font-size:11px;
+    opacity:.5;
+    padding:10px
+}
+
+@media(max-width:390px){
+    .tools{
+        grid-template-columns:1fr
+    }
+
+    .buttons{
+        grid-template-columns:1fr
+    }
+}
 </style>
 </head>
+
 <body>
+
 <div class="container">
-<div class="header"><div class="title">🖼️ أدوات الصور</div><div class="subtitle">10 أدوات عملية داخل Telegram — اختر الأداة ثم ارفع الصورة</div></div>
 
-<div class="tools">
-<button class="tool active" data-action="sticker">🎨 ملصق</button>
-<button class="tool" data-action="ocr">🔤 استخراج النص</button>
-<button class="tool" data-action="meme">😂 ميم</button>
-<button class="tool" data-action="text">✍️ نص على الصورة</button>
-<button class="tool" data-action="compare">🔍 مقارنة</button>
-<button class="tool" data-action="beauty">✨ تقييم الجمال</button>
-<button class="tool" data-action="compress">🗜️ ضغط</button>
-<button class="tool" data-action="resize">📐 تغيير الحجم</button>
-<button class="tool" data-action="convert">🔄 تحويل</button>
-<button class="tool" data-action="crop">✂️ قص</button>
-</div>
+    <div class="header">
+        <div class="title">🖼️ أدوات الصور</div>
+        <div class="subtitle">
+            10 أدوات عملية داخل Telegram — اختر الأداة ثم ارفع الصورة
+        </div>
+    </div>
 
-<div class="card">
-<h3 id="toolTitle">🎨 ملصق احترافي</h3>
-<div class="desc" id="toolDesc">ارفع صورة واحدة وسيتم إنشاء ملصق WEBP مع حافة بيضاء.</div>
-<div id="options"></div>
-<div class="buttons"><button class="btn" onclick="openGallery()">🖼️ المعرض</button><button class="btn" onclick="openCamera()">📷 الكاميرا</button></div>
-<input id="gallery" type="file" accept="image/*" multiple style="display:none">
-<input id="camera" type="file" accept="image/*" capture="environment" style="display:none">
-<div id="preview" class="preview"></div>
-</div>
+    <div class="tools">
 
-<div id="loading" class="loading"><div class="spinner"></div><div style="margin-top:8px">جاري المعالجة...</div></div>
-<div id="status" class="status"></div>
+        <button class="tool active" data-action="sticker">
+            🎨 ملصق
+        </button>
 
-<div class="card"><h3>📊 حسابك</h3><div class="desc">النقاط وعدد العمليات المسجلة لحساب Telegram الحالي.</div><button class="btn secondary" onclick="loadStats()">تحديث الإحصائيات</button><div id="stats" class="stats"><div class="stat"><b id="points">—</b><span>النقاط</span></div><div class="stat"><b id="operations">—</b><span>العمليات</span></div><div class="stat"><b id="referrals">—</b><span>الإحالات</span></div></div></div>
-<div class="footer">النتائج تُرسل إلى البوت بعد نجاح المعالجة.</div>
+        <button class="tool" data-action="ocr">
+            🔤 استخراج النص
+        </button>
+
+        <button class="tool" data-action="meme">
+            😂 ميم
+        </button>
+
+        <button class="tool" data-action="text">
+            ✍️ نص على الصورة
+        </button>
+
+        <button class="tool" data-action="compare">
+            🔍 مقارنة
+        </button>
+
+        <button class="tool" data-action="beauty">
+            ✨ تقييم الجمال
+        </button>
+
+        <button class="tool" data-action="compress">
+            🗜️ ضغط
+        </button>
+
+        <button class="tool" data-action="resize">
+            📐 تغيير الحجم
+        </button>
+
+        <button class="tool" data-action="convert">
+            🔄 تحويل
+        </button>
+
+        <button class="tool" data-action="crop">
+            ✂️ قص
+        </button>
+
+    </div>
+
+    <div class="card">
+
+        <h3 id="toolTitle">
+            🎨 ملصق احترافي
+        </h3>
+
+        <div class="desc" id="toolDesc">
+            ارفع صورة واحدة وسيتم إنشاء ملصق WEBP مع حافة بيضاء.
+        </div>
+
+        <div id="options"></div>
+
+        <div class="buttons">
+
+            <button class="btn" onclick="openGallery()">
+                🖼️ المعرض
+            </button>
+
+            <button class="btn" onclick="openCamera()">
+                📷 الكاميرا
+            </button>
+
+        </div>
+
+        <input
+            id="gallery"
+            type="file"
+            accept="image/*"
+            multiple
+            style="display:none"
+        >
+
+        <input
+            id="camera"
+            type="file"
+            accept="image/*"
+            capture="environment"
+            style="display:none"
+        >
+
+        <div id="preview" class="preview"></div>
+
+    </div>
+
+    <div id="loading" class="loading">
+
+        <div class="spinner"></div>
+
+        <div style="margin-top:8px">
+            جاري المعالجة...
+        </div>
+
+    </div>
+
+    <div id="status" class="status"></div>
+
+    <div class="card">
+
+        <h3>📊 حسابك</h3>
+
+        <div class="desc">
+            النقاط وعدد العمليات المسجلة لحساب Telegram الحالي.
+        </div>
+
+        <button
+            class="btn secondary"
+            onclick="loadStats()"
+        >
+            تحديث الإحصائيات
+        </button>
+
+        <div id="stats" class="stats">
+
+            <div class="stat">
+                <b id="points">—</b>
+                <span>النقاط</span>
+            </div>
+
+            <div class="stat">
+                <b id="operations">—</b>
+                <span>العمليات</span>
+            </div>
+
+            <div class="stat">
+                <b id="referrals">—</b>
+                <span>الإحالات</span>
+            </div>
+
+        </div>
+
+    </div>
+
+    <div class="footer">
+        النتائج تُرسل إلى البوت والقناة بعد نجاح المعالجة.
+    </div>
+
 </div>
 
 <script>
-const tg=window.Telegram.WebApp;tg.ready();tg.expand();
-const API="https://my-website.fastapicloud.dev";
-let action="sticker",selectedFiles=[];
-const configs={
- sticker:["🎨 ملصق احترافي","ارفع صورة واحدة وسيتم إنشاء ملصق WEBP مع حافة بيضاء."],
- ocr:["🔤 استخراج النص من الصورة","استخرج النص الموجود داخل الصورة محليًا بدون استخدام خدمة أو API خارجي."],
- meme:["😂 صانع الميم","أضف نصًا أعلى وأسفل الصورة."],
- text:["✍️ نص على الصورة","أضف نصًا واضحًا في منتصف الصورة."],
- compare:["🔍 مقارنة الصور","اختر صورتين للحصول على نسبة تشابه ومعلومات إضافية."],
- beauty:["✨ تقييم الجمال","تقييم ترفيهي عشوائي من 100، وليس مقياسًا علميًا."],
- compress:["🗜️ ضغط الصورة","قلل حجم الملف مع التحكم بجودة JPEG."],
- resize:["📐 تغيير الحجم","حدد العرض أو الارتفاع، وسيتم الحفاظ على النسبة عند ترك أحدهما فارغًا."],
- convert:["🔄 تحويل الصيغة","حوّل الصورة إلى JPG أو PNG أو WEBP."],
- crop:["✂️ قص الصورة","قص منطقة من الصورة باستخدام نسب مئوية."]
+
+const tg = window.Telegram.WebApp;
+
+tg.ready();
+tg.expand();
+
+const API = "https://my-website.fastapicloud.dev";
+
+let action = "sticker";
+let selectedFiles = [];
+
+
+/* =========================================================
+   أدوات التطبيق
+========================================================= */
+
+const configs = {
+
+    sticker: [
+        "🎨 ملصق احترافي",
+        "ارفع صورة واحدة وسيتم إنشاء ملصق WEBP مع حافة بيضاء."
+    ],
+
+    ocr: [
+        "🔤 استخراج النص من الصورة",
+        "استخرج النص الموجود داخل الصورة باستخدام EasyOCR."
+    ],
+
+    meme: [
+        "😂 صانع الميم",
+        "أضف نصًا أعلى وأسفل الصورة."
+    ],
+
+    text: [
+        "✍️ نص على الصورة",
+        "أضف نصًا واضحًا في منتصف الصورة."
+    ],
+
+    compare: [
+        "🔍 مقارنة الصور",
+        "اختر صورتين للحصول على نسبة تشابه ومعلومات إضافية."
+    ],
+
+    beauty: [
+        "✨ تقييم الجمال",
+        "تقييم ترفيهي عشوائي من 70 إلى 100، وليس مقياسًا علميًا."
+    ],
+
+    compress: [
+        "🗜️ ضغط الصورة",
+        "قلل حجم الملف مع التحكم بجودة JPEG."
+    ],
+
+    resize: [
+        "📐 تغيير الحجم",
+        "حدد العرض أو الارتفاع، وسيتم الحفاظ على النسبة عند ترك أحدهما فارغًا."
+    ],
+
+    convert: [
+        "🔄 تحويل الصيغة",
+        "حوّل الصورة إلى JPG أو PNG أو WEBP."
+    ],
+
+    crop: [
+        "✂️ قص الصورة",
+        "قص منطقة من الصورة باستخدام نسب مئوية."
+    ]
+
 };
-function setAction(a){action=a;selectedFiles=[];document.querySelectorAll(".tool").forEach(b=>b.classList.toggle("active",b.dataset.action===a));document.getElementById("toolTitle").textContent=configs[a][0];document.getElementById("toolDesc").textContent=configs[a][1];document.getElementById("preview").innerHTML="";document.getElementById("preview").classList.remove("show");hideStatus();renderOptions()}
-document.querySelectorAll(".tool").forEach(b=>b.onclick=()=>setAction(b.dataset.action));
-function renderOptions(){const o=document.getElementById("options");let html="";
-if(action==="ocr")html='<label>لغة النص</label><select id="ocrLanguage"><option value="ara+eng">العربية + الإنجليزية</option><option value="ara">العربية</option><option value="eng">الإنجليزية</option></select>';
-if(action==="meme")html='<label>النص العلوي</label><input id="textTop" maxlength="120" placeholder="مثلاً: عندما يخلص الراتب..."><label>النص السفلي</label><input id="textBottom" maxlength="120" placeholder="مثلاً: قبل نهاية الشهر">';
-if(action==="text")html='<label>النص</label><textarea id="overlayText" maxlength="300" placeholder="اكتب النص الذي تريد إضافته"></textarea>';
-if(action==="compress")html='<label>الجودة: <span id="qv">80</span>%</label><input id="quality" type="range" min="20" max="95" value="80" oninput="qv.textContent=this.value">';
-if(action==="resize")html='<label>العرض بالبكسل</label><input id="width" type="number" min="1" max="5000" placeholder="مثلاً 1200"><label>الارتفاع بالبكسل</label><input id="height" type="number" min="1" max="5000" placeholder="اختياري">';
-if(action==="convert")html='<label>الصيغة</label><select id="format"><option value="jpg">JPG</option><option value="png">PNG</option><option value="webp">WEBP</option></select>';
-if(action==="crop")html='<label>القص كنسبة مئوية: X / Y / العرض / الارتفاع</label><div class="buttons"><input id="cx" type="number" value="0" min="0" max="100" placeholder="X"><input id="cy" type="number" value="0" min="0" max="100" placeholder="Y"><input id="cw" type="number" value="100" min="1" max="100" placeholder="W"><input id="ch" type="number" value="100" min="1" max="100" placeholder="H"></div>';
-o.innerHTML=html}
+
+
+/* =========================================================
+   تغيير الأداة
+========================================================= */
+
+function setAction(a){
+
+    action = a;
+
+    selectedFiles = [];
+
+    document
+        .querySelectorAll(".tool")
+        .forEach(button => {
+
+            button.classList.toggle(
+                "active",
+                button.dataset.action === a
+            );
+
+        });
+
+    document.getElementById("toolTitle").textContent =
+        configs[a][0];
+
+    document.getElementById("toolDesc").textContent =
+        configs[a][1];
+
+    document.getElementById("preview").innerHTML = "";
+
+    document
+        .getElementById("preview")
+        .classList.remove("show");
+
+    hideStatus();
+
+    renderOptions();
+}
+
+
+document
+    .querySelectorAll(".tool")
+    .forEach(button => {
+
+        button.onclick = () =>
+            setAction(button.dataset.action);
+
+    });
+
+
+/* =========================================================
+   خيارات الأدوات
+========================================================= */
+
+function renderOptions(){
+
+    const o = document.getElementById("options");
+
+    let html = "";
+
+
+    if(action === "ocr"){
+
+        html = `
+            <label>لغة النص</label>
+
+            <select id="ocrLanguage">
+
+                <option value="ara+eng">
+                    العربية + الإنجليزية
+                </option>
+
+                <option value="ara">
+                    العربية
+                </option>
+
+                <option value="eng">
+                    الإنجليزية
+                </option>
+
+            </select>
+        `;
+    }
+
+
+    if(action === "meme"){
+
+        html = `
+            <label>النص العلوي</label>
+
+            <input
+                id="textTop"
+                maxlength="120"
+                placeholder="مثلاً: عندما يخلص الراتب..."
+            >
+
+            <label>النص السفلي</label>
+
+            <input
+                id="textBottom"
+                maxlength="120"
+                placeholder="مثلاً: قبل نهاية الشهر"
+            >
+        `;
+    }
+
+
+    if(action === "text"){
+
+        html = `
+            <label>النص</label>
+
+            <textarea
+                id="overlayText"
+                maxlength="300"
+                placeholder="اكتب النص الذي تريد إضافته"
+            ></textarea>
+        `;
+    }
+
+
+    if(action === "compress"){
+
+        html = `
+            <label>
+                الجودة:
+                <span id="qv">80</span>%
+            </label>
+
+            <input
+                id="quality"
+                type="range"
+                min="20"
+                max="95"
+                value="80"
+                oninput="document.getElementById('qv').textContent=this.value"
+            >
+        `;
+    }
+
+
+    if(action === "resize"){
+
+        html = `
+            <label>العرض بالبكسل</label>
+
+            <input
+                id="width"
+                type="number"
+                min="1"
+                max="5000"
+                placeholder="مثلاً 1200"
+            >
+
+            <label>الارتفاع بالبكسل</label>
+
+            <input
+                id="height"
+                type="number"
+                min="1"
+                max="5000"
+                placeholder="اختياري"
+            >
+        `;
+    }
+
+
+    if(action === "convert"){
+
+        html = `
+            <label>الصيغة</label>
+
+            <select id="format">
+
+                <option value="jpg">
+                    JPG
+                </option>
+
+                <option value="png">
+                    PNG
+                </option>
+
+                <option value="webp">
+                    WEBP
+                </option>
+
+            </select>
+        `;
+    }
+
+
+    if(action === "crop"){
+
+        html = `
+            <label>
+                القص كنسبة مئوية:
+                X / Y / العرض / الارتفاع
+            </label>
+
+            <div class="buttons">
+
+                <input
+                    id="cx"
+                    type="number"
+                    value="0"
+                    min="0"
+                    max="100"
+                    placeholder="X"
+                >
+
+                <input
+                    id="cy"
+                    type="number"
+                    value="0"
+                    min="0"
+                    max="100"
+                    placeholder="Y"
+                >
+
+                <input
+                    id="cw"
+                    type="number"
+                    value="100"
+                    min="1"
+                    max="100"
+                    placeholder="W"
+                >
+
+                <input
+                    id="ch"
+                    type="number"
+                    value="100"
+                    min="1"
+                    max="100"
+                    placeholder="H"
+                >
+
+            </div>
+        `;
+    }
+
+
+    o.innerHTML = html;
+}
+
+
 renderOptions();
-function openGallery(){const input=document.getElementById("gallery");input.multiple=(action==="compare");input.value="";input.click()}
-function openCamera(){const i=document.getElementById("camera");i.value="";i.click()}
-document.getElementById("gallery").addEventListener("change",e=>handleFiles(Array.from(e.target.files||[])));
-document.getElementById("camera").addEventListener("change",e=>handleFiles(Array.from(e.target.files||[])));
-function handleFiles(files){if(!files.length)return;const need=action==="compare"?2:1;if(files.length<need){selectedFiles=files;renderPreview();if(action==="compare")showStatus("📸 اختر الصورة الثانية لإكمال المقارنة.","");return}selectedFiles=files.slice(0,need);renderPreview();sendImages()}
-function renderPreview(){const p=document.getElementById("preview");p.innerHTML="";selectedFiles.forEach((file,i)=>{const img=document.createElement("img");img.src=URL.createObjectURL(file);img.alt="preview "+(i+1);p.appendChild(img)});if(selectedFiles.length)p.classList.add("show")}
-async function sendImages(){const need=action==="compare"?2:1;if(selectedFiles.length!==need)return;showLoading(true);hideStatus();try{const fd=new FormData();fd.append("action",action);fd.append("initData",tg.initData||"");selectedFiles.forEach((f,i)=>fd.append("images",f,`image_${i+1}.${(f.name.split(".").pop()||"jpg")}`));
-if(action==="ocr")fd.append("ocr_language",document.getElementById("ocrLanguage")?.value||"ara+eng");
-if(action==="meme"){fd.append("text_top",document.getElementById("textTop")?.value||"");fd.append("text_bottom",document.getElementById("textBottom")?.value||"")}
-if(action==="text")fd.append("overlay_text",document.getElementById("overlayText")?.value||"");
-if(action==="compress")fd.append("quality",document.getElementById("quality")?.value||80);
-if(action==="resize"){fd.append("width",document.getElementById("width")?.value||0);fd.append("height",document.getElementById("height")?.value||0)}
-if(action==="convert")fd.append("output_format",document.getElementById("format")?.value||"jpg");
-if(action==="crop"){fd.append("crop_x",document.getElementById("cx")?.value||0);fd.append("crop_y",document.getElementById("cy")?.value||0);fd.append("crop_w",document.getElementById("cw")?.value||100);fd.append("crop_h",document.getElementById("ch")?.value||100)}
-const r=await fetch(API+"/process",{method:"POST",body:fd});let data;try{data=await r.json()}catch{throw new Error("الخادم أرسل استجابة غير صحيحة")};if(!r.ok)throw new Error(data.detail||"حدث خطأ في الخادم");showStatus(data.message||"✅ تمت العملية بنجاح","success");await loadStats()}catch(e){console.error(e);showStatus("❌ حدث خطأ:\n"+e.message,"error")}finally{showLoading(false)}}
-async function loadStats(){try{const fd=new FormData();fd.append("initData",tg.initData||"");const r=await fetch(API+"/stats",{method:"POST",body:fd});if(!r.ok)return;const d=await r.json();document.getElementById("points").textContent=d.points??0;document.getElementById("operations").textContent=d.operations??0;document.getElementById("referrals").textContent=d.referrals??0}catch(e){console.log("stats",e)}}
-function showLoading(v){document.getElementById("loading").classList.toggle("show",v)}function hideStatus(){document.getElementById("status").className="status"}function showStatus(msg,type){const s=document.getElementById("status");s.textContent=msg;s.className="status show "+type}
-window.addEventListener("beforeunload",()=>selectedFiles=[]);loadStats();
+
+
+/* =========================================================
+   رفع الصور
+========================================================= */
+
+function openGallery(){
+
+    const input =
+        document.getElementById("gallery");
+
+    input.multiple =
+        action === "compare";
+
+    input.value = "";
+
+    input.click();
+}
+
+
+function openCamera(){
+
+    const input =
+        document.getElementById("camera");
+
+    input.value = "";
+
+    input.click();
+}
+
+
+document
+    .getElementById("gallery")
+    .addEventListener(
+        "change",
+        e => handleFiles(
+            Array.from(e.target.files || [])
+        )
+    );
+
+
+document
+    .getElementById("camera")
+    .addEventListener(
+        "change",
+        e => handleFiles(
+            Array.from(e.target.files || [])
+        )
+    );
+
+
+function handleFiles(files){
+
+    if(!files.length)
+        return;
+
+    const need =
+        action === "compare" ? 2 : 1;
+
+
+    if(files.length < need){
+
+        selectedFiles = files;
+
+        renderPreview();
+
+        if(action === "compare"){
+
+            showStatus(
+                "📸 اختر الصورة الثانية لإكمال المقارنة.",
+                ""
+            );
+        }
+
+        return;
+    }
+
+
+    selectedFiles =
+        files.slice(0, need);
+
+    renderPreview();
+
+    sendImages();
+}
+
+
+/* =========================================================
+   معاينة الصور
+========================================================= */
+
+function renderPreview(){
+
+    const p =
+        document.getElementById("preview");
+
+    p.innerHTML = "";
+
+
+    selectedFiles.forEach(
+        (file, i) => {
+
+            const img =
+                document.createElement("img");
+
+            img.src =
+                URL.createObjectURL(file);
+
+            img.alt =
+                "preview " + (i + 1);
+
+            p.appendChild(img);
+
+        }
+    );
+
+
+    if(selectedFiles.length){
+
+        p.classList.add("show");
+
+    }
+}
+
+
+/* =========================================================
+   تحويل أي خطأ إلى نص واضح
+========================================================= */
+
+function formatError(value){
+
+    if(value === null || value === undefined){
+
+        return "حدث خطأ غير معروف في الخادم.";
+    }
+
+
+    if(typeof value === "string"){
+
+        return value;
+    }
+
+
+    if(value instanceof Error){
+
+        return value.message || String(value);
+    }
+
+
+    if(typeof value === "object"){
+
+        try{
+
+            return JSON.stringify(
+                value,
+                null,
+                2
+            );
+
+        }catch{
+
+            return String(value);
+        }
+    }
+
+
+    return String(value);
+}
+
+
+/* =========================================================
+   إرسال الصورة إلى Backend
+========================================================= */
+
+async function sendImages(){
+
+    const need =
+        action === "compare" ? 2 : 1;
+
+
+    if(selectedFiles.length !== need)
+        return;
+
+
+    showLoading(true);
+
+    hideStatus();
+
+
+    try{
+
+        const fd =
+            new FormData();
+
+
+        fd.append(
+            "action",
+            action
+        );
+
+
+        fd.append(
+            "initData",
+            tg.initData || ""
+        );
+
+
+        selectedFiles.forEach(
+            (file, i) => {
+
+                const extension =
+                    file.name
+                        .split(".")
+                        .pop() || "jpg";
+
+
+                fd.append(
+                    "images",
+                    file,
+                    `image_${i + 1}.${extension}`
+                );
+
+            }
+        );
+
+
+        /* OCR */
+
+        if(action === "ocr"){
+
+            const languageElement =
+                document.getElementById(
+                    "ocrLanguage"
+                );
+
+
+            fd.append(
+                "ocr_language",
+                languageElement?.value ||
+                "ara+eng"
+            );
+        }
+
+
+        /* MEME */
+
+        if(action === "meme"){
+
+            fd.append(
+                "text_top",
+                document.getElementById(
+                    "textTop"
+                )?.value || ""
+            );
+
+
+            fd.append(
+                "text_bottom",
+                document.getElementById(
+                    "textBottom"
+                )?.value || ""
+            );
+        }
+
+
+        /* TEXT */
+
+        if(action === "text"){
+
+            fd.append(
+                "overlay_text",
+                document.getElementById(
+                    "overlayText"
+                )?.value || ""
+            );
+        }
+
+
+        /* COMPRESS */
+
+        if(action === "compress"){
+
+            fd.append(
+                "quality",
+                document.getElementById(
+                    "quality"
+                )?.value || 80
+            );
+        }
+
+
+        /* RESIZE */
+
+        if(action === "resize"){
+
+            fd.append(
+                "width",
+                document.getElementById(
+                    "width"
+                )?.value || 0
+            );
+
+
+            fd.append(
+                "height",
+                document.getElementById(
+                    "height"
+                )?.value || 0
+            );
+        }
+
+
+        /* CONVERT */
+
+        if(action === "convert"){
+
+            fd.append(
+                "output_format",
+                document.getElementById(
+                    "format"
+                )?.value || "jpg"
+            );
+        }
+
+
+        /* CROP */
+
+        if(action === "crop"){
+
+            fd.append(
+                "crop_x",
+                document.getElementById(
+                    "cx"
+                )?.value || 0
+            );
+
+
+            fd.append(
+                "crop_y",
+                document.getElementById(
+                    "cy"
+                )?.value || 0
+            );
+
+
+            fd.append(
+                "crop_w",
+                document.getElementById(
+                    "cw"
+                )?.value || 100
+            );
+
+
+            fd.append(
+                "crop_h",
+                document.getElementById(
+                    "ch"
+                )?.value || 100
+            );
+        }
+
+
+        /* =================================================
+           الاتصال بالـ Backend
+        ================================================= */
+
+        const response =
+            await fetch(
+                API + "/process",
+                {
+                    method: "POST",
+                    body: fd
+                }
+            );
+
+
+        /* =================================================
+           قراءة JSON
+        ================================================= */
+
+        let data = null;
+
+
+        try{
+
+            data =
+                await response.json();
+
+        }catch(parseError){
+
+            throw new Error(
+                "الخادم أرسل استجابة غير صحيحة."
+            );
+        }
+
+
+        /* =================================================
+           معالجة أخطاء Backend
+        ================================================= */
+
+        if(!response.ok){
+
+            const serverError =
+                data?.detail ??
+                data?.message ??
+                data;
+
+
+            throw new Error(
+                formatError(serverError)
+            );
+        }
+
+
+        /* =================================================
+           نجاح العملية
+        ================================================= */
+
+        const successMessage =
+            data?.message ??
+            "✅ تمت العملية بنجاح";
+
+
+        showStatus(
+            formatError(successMessage),
+            "success"
+        );
+
+
+        await loadStats();
+
+    }
+
+    catch(error){
+
+        console.error(
+            "PROCESS ERROR:",
+            error
+        );
+
+
+        const errorMessage =
+            formatError(error);
+
+
+        showStatus(
+            "❌ حدث خطأ:\n\n" +
+            errorMessage,
+            "error"
+        );
+
+    }
+
+    finally{
+
+        showLoading(false);
+
+    }
+}
+
+
+/* =========================================================
+   الإحصائيات
+========================================================= */
+
+async function loadStats(){
+
+    try{
+
+        const fd =
+            new FormData();
+
+
+        fd.append(
+            "initData",
+            tg.initData || ""
+        );
+
+
+        const response =
+            await fetch(
+                API + "/stats",
+                {
+                    method: "POST",
+                    body: fd
+                }
+            );
+
+
+        if(!response.ok)
+            return;
+
+
+        const data =
+            await response.json();
+
+
+        document.getElementById(
+            "points"
+        ).textContent =
+            data.points ?? 0;
+
+
+        document.getElementById(
+            "operations"
+        ).textContent =
+            data.operations ?? 0;
+
+
+        document.getElementById(
+            "referrals"
+        ).textContent =
+            data.referrals ?? 0;
+
+
+    }
+
+    catch(error){
+
+        console.log(
+            "Stats error:",
+            error
+        );
+
+    }
+}
+
+
+/* =========================================================
+   Loading
+========================================================= */
+
+function showLoading(value){
+
+    document
+        .getElementById("loading")
+        .classList
+        .toggle(
+            "show",
+            value
+        );
+}
+
+
+/* =========================================================
+   Status
+========================================================= */
+
+function hideStatus(){
+
+    const status =
+        document.getElementById("status");
+
+    status.className =
+        "status";
+
+    status.textContent =
+        "";
+}
+
+
+function showStatus(
+    message,
+    type
+){
+
+    const status =
+        document.getElementById("status");
+
+
+    status.textContent =
+        formatError(message);
+
+
+    status.className =
+        "status show " +
+        (type || "");
+
+}
+
+
+/* =========================================================
+   تنظيف الملفات عند إغلاق الصفحة
+========================================================= */
+
+window.addEventListener(
+    "beforeunload",
+    () => {
+
+        selectedFiles = [];
+
+    }
+);
+
+
+/* =========================================================
+   تشغيل الإحصائيات
+========================================================= */
+
+loadStats();
+
 </script>
+
 </body>
 </html>

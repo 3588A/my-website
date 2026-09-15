@@ -4,7 +4,8 @@ import io
 import json
 import os
 import secrets
-import sqlite3
+import psycopg
+from psycopg.rows import dict_row
 import time
 import traceback
 from collections import defaultdict, deque
@@ -19,9 +20,9 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 from telegram import Bot
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
-APP_DIR = Path(__file__).resolve().parent
-DB_PATH = Path(os.getenv("DATABASE_PATH", APP_DIR / "bot.sqlite3"))
-DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL is not configured. Add your Neon PostgreSQL connection string.")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 CHANNEL_ID = os.getenv("CHANNEL_ID", "")
 ADMIN_USER_ID = 6931187332
@@ -53,41 +54,37 @@ _RATE_MAX = 20
 
 
 def db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    return conn
+    return psycopg.connect(DATABASE_URL, row_factory=dict_row, connect_timeout=10)
 
 
 def init_db():
+    statements = [
+        """CREATE TABLE IF NOT EXISTS users (
+            user_id BIGINT PRIMARY KEY,
+            username TEXT NOT NULL DEFAULT '', first_name TEXT NOT NULL DEFAULT '',
+            points INTEGER NOT NULL DEFAULT 0, operations INTEGER NOT NULL DEFAULT 0,
+            referrals INTEGER NOT NULL DEFAULT 0, notifications INTEGER NOT NULL DEFAULT 1,
+            created_at TIMESTAMP NOT NULL, last_seen TIMESTAMP NOT NULL
+        )""",
+        """CREATE TABLE IF NOT EXISTS usage (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            user_id BIGINT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+            action TEXT NOT NULL, created_at TIMESTAMP NOT NULL
+        )""",
+        """CREATE TABLE IF NOT EXISTS notifications (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            user_id BIGINT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+            title TEXT NOT NULL, body TEXT NOT NULL, is_read INTEGER NOT NULL DEFAULT 0,
+            created_at TIMESTAMP NOT NULL
+        )""",
+        """CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT ''
+        )""",
+        "CREATE INDEX IF NOT EXISTS usage_user_date ON usage(user_id, created_at)",
+    ]
     with db() as conn:
-        conn.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS users (
-                user_id INTEGER PRIMARY KEY,
-                username TEXT DEFAULT '', first_name TEXT DEFAULT '',
-                points INTEGER DEFAULT 0, operations INTEGER DEFAULT 0,
-                referrals INTEGER DEFAULT 0, notifications INTEGER DEFAULT 1,
-                created_at TEXT NOT NULL, last_seen TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS usage (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
-                action TEXT NOT NULL, created_at TEXT NOT NULL,
-                FOREIGN KEY(user_id) REFERENCES users(user_id)
-            );
-            CREATE TABLE IF NOT EXISTS notifications (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
-                title TEXT NOT NULL, body TEXT NOT NULL, is_read INTEGER DEFAULT 0,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY(user_id) REFERENCES users(user_id)
-            );
-            CREATE TABLE IF NOT EXISTS settings (
-                key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT ''
-            );
-            CREATE INDEX IF NOT EXISTS usage_user_date ON usage(user_id, created_at);
-            """
-        )
+        for statement in statements:
+            conn.execute(statement)
 
 
 @app.on_event("startup")
@@ -114,7 +111,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 
 def now_iso():
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def verify_init_data(init_data: str) -> dict:
@@ -146,7 +143,7 @@ def ensure_user(user: dict):
     with db() as conn:
         conn.execute(
             """INSERT INTO users(user_id, username, first_name, created_at, last_seen)
-               VALUES(?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET
+               VALUES(%s,%s,%s,%s,%s) ON CONFLICT(user_id) DO UPDATE SET
                username=excluded.username, first_name=excluded.first_name, last_seen=excluded.last_seen""",
             (user["id"], user["username"], user["first_name"], timestamp, timestamp),
         )
@@ -167,13 +164,13 @@ def require_admin(init_data: str):
 
 def get_setting(key: str, default: str = ""):
     with db() as conn:
-        row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+        row = conn.execute("SELECT value FROM settings WHERE key=%s", (key,)).fetchone()
     return row["value"] if row else default
 
 
 def set_setting(key: str, value: str):
     with db() as conn:
-        conn.execute("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
+        conn.execute("INSERT INTO settings(key,value) VALUES(%s,%s) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
 
 
 async def subscription_status(user_id: int):
@@ -211,11 +208,11 @@ def check_rate_limit(user_id: int):
 def period_counts(user_id: int):
     with db() as conn:
         daily = conn.execute(
-            "SELECT COUNT(*) FROM usage WHERE user_id=? AND created_at >= datetime('now','-1 day')", (user_id,)
-        ).fetchone()[0]
+            "SELECT COUNT(*) AS count FROM usage WHERE user_id=%s AND created_at >= CURRENT_TIMESTAMP - INTERVAL '1 day'", (user_id,)
+        ).fetchone()["count"]
         monthly = conn.execute(
-            "SELECT COUNT(*) FROM usage WHERE user_id=? AND created_at >= datetime('now','-30 day')", (user_id,)
-        ).fetchone()[0]
+            "SELECT COUNT(*) AS count FROM usage WHERE user_id=%s AND created_at >= CURRENT_TIMESTAMP - INTERVAL '30 days'", (user_id,)
+        ).fetchone()["count"]
     return daily, monthly
 
 
@@ -226,20 +223,20 @@ def record_operation(user_id: int, action: str):
     if monthly >= MONTHLY_LIMIT:
         raise HTTPException(429, f"تجاوزت الحد الشهري ({MONTHLY_LIMIT} عملية)")
     with db() as conn:
-        conn.execute("INSERT INTO usage(user_id, action, created_at) VALUES(?,?,?)", (user_id, action, now_iso()))
-        conn.execute("UPDATE users SET operations=operations+1, points=points+? WHERE user_id=?", (POINTS_PER_OPERATION, user_id))
+        conn.execute("INSERT INTO usage(user_id, action, created_at) VALUES(%s,%s,%s)", (user_id, action, now_iso()))
+        conn.execute("UPDATE users SET operations=operations+1, points=points+%s WHERE user_id=%s", (POINTS_PER_OPERATION, user_id))
     return daily + 1, monthly + 1
 
 
 def stats_for(user_id: int):
     daily, monthly = period_counts(user_id)
     with db() as conn:
-        user = conn.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
+        user = conn.execute("SELECT * FROM users WHERE user_id=%s", (user_id,)).fetchone()
         recent = conn.execute(
-            "SELECT action, COUNT(*) count FROM usage WHERE user_id=? GROUP BY action ORDER BY count DESC", (user_id,)
+            "SELECT action, COUNT(*) count FROM usage WHERE user_id=%s GROUP BY action ORDER BY count DESC", (user_id,)
         ).fetchall()
         notifications = conn.execute(
-            "SELECT id,title,body,created_at,is_read FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 10", (user_id,)
+            "SELECT id,title,body,created_at,is_read FROM notifications WHERE user_id=%s ORDER BY id DESC LIMIT 10", (user_id,)
         ).fetchall()
     return {
         "user": {"id": user_id, "username": user["username"], "first_name": user["first_name"]},
@@ -326,7 +323,7 @@ async def notifications_read(initData: str = Form(...)):
     user = current_user(initData)
     await enforce_subscription(user["id"])
     with db() as conn:
-        conn.execute("UPDATE notifications SET is_read=1 WHERE user_id=?", (user["id"],))
+        conn.execute("UPDATE notifications SET is_read=1 WHERE user_id=%s", (user["id"],))
     return {"success": True}
 
 
@@ -399,7 +396,7 @@ async def process(
 async def admin_overview(initData: str = Form(...)):
     require_admin(initData)
     with db() as conn:
-        total = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]; operations = conn.execute("SELECT COUNT(*) FROM usage").fetchone()[0]; active = conn.execute("SELECT COUNT(*) FROM users WHERE last_seen >= datetime('now','-1 day')").fetchone()[0]
+        total = conn.execute("SELECT COUNT(*) AS count FROM users").fetchone()["count"]; operations = conn.execute("SELECT COUNT(*) AS count FROM usage").fetchone()["count"]; active = conn.execute("SELECT COUNT(*) AS count FROM users WHERE last_seen >= CURRENT_TIMESTAMP - INTERVAL '1 day'").fetchone()["count"]
         users = conn.execute("SELECT user_id,username,first_name,points,operations,last_seen FROM users ORDER BY last_seen DESC LIMIT 100").fetchall()
     return {"total_users": total, "total_operations": operations, "active_today": active, "users": [dict(row) for row in users]}
 
@@ -420,7 +417,7 @@ async def admin_notify(initData: str = Form(...), title: str = Form(...), body: 
     require_admin(initData)
     with db() as conn:
         users = conn.execute("SELECT user_id FROM users").fetchall()
-        conn.executemany("INSERT INTO notifications(user_id,title,body,created_at) VALUES(?,?,?,?)", [(r["user_id"], title[:120], body[:1000], now_iso()) for r in users])
+        conn.executemany("INSERT INTO notifications(user_id,title,body,created_at) VALUES(%s,%s,%s,%s)", [(r["user_id"], title[:120], body[:1000], now_iso()) for r in users])
     return {"success": True, "created": len(users)}
 
 
@@ -487,7 +484,7 @@ async def subscription_status_endpoint(initData: str = Form(...)):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "database": DB_PATH.exists(), "telegram_configured": bool(BOT_TOKEN)}
+    return {"status": "ok", "database": bool(DATABASE_URL), "telegram_configured": bool(BOT_TOKEN)}
 
 
 if __name__ == "__main__":

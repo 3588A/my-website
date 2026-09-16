@@ -443,12 +443,6 @@ async def process(
         percentage = round(max(0, min(100, 100 - np.mean(abs(a - b)) / 255 * 100)), 2)
         message = f"🔍 نسبة التشابه: {percentage}%"
         await deliver_message(user["id"], message)
-        destinations = [str(user["id"])]
-        if CHANNEL_ID and str(CHANNEL_ID).strip() not in destinations:
-            destinations.append(str(CHANNEL_ID).strip())
-        for destination in destinations:
-            for original_data in raw:
-                await send_photo(destination, original_data, "🖼️ الصورة الأصلية للمقارنة")
         return {"success": True, "similarity": percentage, "message": message}
     image = load_image(raw[0])
     filename, message = "result.jpg", "✅ تمت المعالجة بنجاح"

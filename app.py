@@ -302,32 +302,52 @@ def centered(draw, image, text, y, font):
 
 async def send_message(chat_id, text):
     if not BOT_TOKEN:
+        print("Telegram message skipped: BOT_TOKEN is empty", flush=True)
         return False
     try:
         await Bot(BOT_TOKEN).send_message(chat_id=chat_id, text=str(text)[:4096])
         return True
     except Exception as exc:
-        print(f"Telegram message failed: {exc}")
+        print(f"Telegram message failed for {chat_id}: {type(exc).__name__}: {exc}", flush=True)
         return False
 
 
 async def send_document(chat_id, data, filename, caption=""):
     if not BOT_TOKEN:
+        print("Telegram document skipped: BOT_TOKEN is empty", flush=True)
         return False
     try:
-        stream = io.BytesIO(data); stream.name = filename
+        stream = io.BytesIO(data)
+        stream.name = filename
         await Bot(BOT_TOKEN).send_document(chat_id=chat_id, document=stream, caption=caption[:1024])
         return True
     except Exception as exc:
-        print(f"Telegram document failed: {exc}")
+        print(f"Telegram document failed for {chat_id}: {type(exc).__name__}: {exc}", flush=True)
         return False
 
 
+async def deliver_message(user_id, text):
+    """Send text result to the user and, when configured, to the channel."""
+    destinations = [str(user_id)]
+    if CHANNEL_ID and str(CHANNEL_ID).strip() not in destinations:
+        destinations.append(str(CHANNEL_ID).strip())
+    results = [await send_message(destination, text) for destination in destinations]
+    if not any(results):
+        raise HTTPException(502, "تعذر إرسال النتيجة إلى Telegram. تأكد من BOT_TOKEN وأن البوت بدأ محادثة مع المستخدم ومشرف في القناة.")
+    return {"user_sent": results[0], "channel_sent": results[1] if len(results) > 1 else False}
+
+
 async def deliver(user_id, original, result=None, filename="result.jpg", caption=""):
-    if result is not None:
-        await send_document(user_id, result, filename, caption)
-        if CHANNEL_ID:
-            await send_document(CHANNEL_ID, result, filename, caption)
+    """Send a generated file to the user and channel, reporting delivery status."""
+    if result is None:
+        return {"user_sent": False, "channel_sent": False}
+    destinations = [str(user_id)]
+    if CHANNEL_ID and str(CHANNEL_ID).strip() not in destinations:
+        destinations.append(str(CHANNEL_ID).strip())
+    results = [await send_document(destination, result, filename, caption) for destination in destinations]
+    if not any(results):
+        raise HTTPException(502, "تعذر إرسال الملف إلى Telegram. تأكد من BOT_TOKEN وأن البوت بدأ محادثة مع المستخدم ومشرف في القناة.")
+    return {"user_sent": results[0], "channel_sent": results[1] if len(results) > 1 else False}
 
 
 @app.get("/")
@@ -397,11 +417,11 @@ async def process(
         image = load_image(raw[0]); image.thumbnail((512, 512)); canvas = Image.new("RGB", (image.width + 24, image.height + 24), "white"); canvas.paste(image, (12, 12)); out = io.BytesIO(); canvas.save(out, "WEBP", quality=90); result = out.getvalue(); await deliver(user["id"], raw[0], result, "sticker.webp", "🎨 ملصق جاهز"); return {"success": True, "message": "🎨 تم إنشاء الملصق"}
     if action == "compare":
         import numpy as np
-        a = np.asarray(ImageOps.fit(load_image(raw[0]), (300, 300))).astype(float); b = np.asarray(ImageOps.fit(load_image(raw[1]), (300, 300))).astype(float); percentage = round(max(0, min(100, 100 - np.mean(abs(a - b)) / 255 * 100)), 2); return {"success": True, "similarity": percentage, "message": f"🔍 نسبة التشابه: {percentage}%"}
+        a = np.asarray(ImageOps.fit(load_image(raw[0]), (300, 300))).astype(float); b = np.asarray(ImageOps.fit(load_image(raw[1]), (300, 300))).astype(float); percentage = round(max(0, min(100, 100 - np.mean(abs(a - b)) / 255 * 100)), 2); message = f"🔍 نسبة التشابه: {percentage}%"; await deliver_message(user["id"], message); return {"success": True, "similarity": percentage, "message": message}
     image = load_image(raw[0])
     filename, message = "result.jpg", "✅ تمت المعالجة بنجاح"
     if action == "beauty":
-        score = secrets.randbelow(31) + 70; message = f"✨ تقييم ترفيهي: {score}/100"; return {"success": True, "message": message, "score": score}
+        score = secrets.randbelow(31) + 70; message = f"✨ تقييم ترفيهي: {score}/100"; await deliver_message(user["id"], message); return {"success": True, "message": message, "score": score}
     if action == "meme":
         draw = ImageDraw.Draw(image); font = get_font(max(24, image.width // 14), True); centered(draw, image, text_top.strip(), 20, font); centered(draw, image, text_bottom.strip(), image.height - 80, font); message = "😂 تم إنشاء الميم"
     elif action == "text":

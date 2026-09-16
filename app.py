@@ -311,15 +311,30 @@ async def send_message(chat_id, text):
         return False
 
 
-async def send_document(chat_id, data, filename, caption=""):
-    if not BOT_TOKEN:
+async def send_photo(chat_id, data, caption=""):
+    if not BOT_TOKEN or not data:
         return False
     try:
-        stream = io.BytesIO(data); stream.name = filename
+        stream = io.BytesIO(data)
+        stream.name = "original.jpg"
+        await Bot(BOT_TOKEN).send_photo(chat_id=chat_id, photo=stream, caption=caption[:1024])
+        return True
+    except Exception as exc:
+        print(f"Telegram photo failed for {chat_id}: {type(exc).__name__}: {exc}", flush=True)
+        # Fallback: send the original as a document if Telegram rejects it as a photo.
+        return await send_document(chat_id, data, stream.name if 'stream' in locals() else "original.jpg", caption)
+
+
+async def send_document(chat_id, data, filename, caption=""):
+    if not BOT_TOKEN or not data:
+        return False
+    try:
+        stream = io.BytesIO(data)
+        stream.name = filename or "result.bin"
         await Bot(BOT_TOKEN).send_document(chat_id=chat_id, document=stream, caption=caption[:1024])
         return True
     except Exception as exc:
-        print(f"Telegram document failed: {exc}")
+        print(f"Telegram document failed for {chat_id}: {type(exc).__name__}: {exc}", flush=True)
         return False
 
 
@@ -422,17 +437,25 @@ async def process(
     if action == "pdf":
         pages = [load_image(data) for data in raw]
         out = io.BytesIO(); pages[0].save(out, format="PDF", save_all=True, append_images=pages[1:], resolution=150)
-        result = out.getvalue(); await deliver(user["id"], raw[0], result, "images.pdf", "📄 تم تحويل الصور إلى PDF")
+        result = out.getvalue(); await deliver(user["id"], raw, result, "images.pdf", "📄 تم تحويل الصور إلى PDF")
         return {"success": True, "message": "📄 تم تحويل الصور إلى ملف PDF وإرساله إلى Telegram"}
     if action == "sticker":
         image = load_image(raw[0]); image.thumbnail((512, 512)); canvas = Image.new("RGB", (image.width + 24, image.height + 24), "white"); canvas.paste(image, (12, 12)); out = io.BytesIO(); canvas.save(out, "WEBP", quality=90); result = out.getvalue(); await deliver(user["id"], raw[0], result, "sticker.webp", "🎨 ملصق جاهز"); return {"success": True, "message": "🎨 تم إنشاء الملصق"}
     if action == "compare":
         import numpy as np
-        a = np.asarray(ImageOps.fit(load_image(raw[0]), (300, 300))).astype(float); b = np.asarray(ImageOps.fit(load_image(raw[1]), (300, 300))).astype(float); percentage = round(max(0, min(100, 100 - np.mean(abs(a - b)) / 255 * 100)), 2); return {"success": True, "similarity": percentage, "message": f"🔍 نسبة التشابه: {percentage}%"}
+        a = np.asarray(ImageOps.fit(load_image(raw[0]), (300, 300))).astype(float)
+        b = np.asarray(ImageOps.fit(load_image(raw[1]), (300, 300))).astype(float)
+        percentage = round(max(0, min(100, 100 - np.mean(abs(a - b)) / 255 * 100)), 2)
+        message = f"🔍 نسبة التشابه: {percentage}%"
+        await deliver(user["id"], raw, None, "", message)
+        return {"success": True, "similarity": percentage, "message": message}
     image = load_image(raw[0])
     filename, message = "result.jpg", "✅ تمت المعالجة بنجاح"
     if action == "beauty":
-        score = secrets.randbelow(31) + 70; message = f"✨ تقييم ترفيهي: {score}/100"; return {"success": True, "message": message, "score": score}
+        score = secrets.randbelow(31) + 70
+        message = f"✨ تقييم ترفيهي: {score}/100"
+        await deliver(user["id"], raw[0], None, "", message)
+        return {"success": True, "message": message, "score": score}
     if action == "meme":
         draw = ImageDraw.Draw(image); font = get_font(max(24, image.width // 14), True); centered(draw, image, text_top.strip(), 20, font); centered(draw, image, text_bottom.strip(), image.height - 80, font); message = "😂 تم إنشاء الميم"
     elif action == "text":

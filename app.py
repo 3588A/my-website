@@ -3,6 +3,7 @@ import hmac
 import io
 import json
 import os
+import re
 import secrets
 import psycopg
 from psycopg.rows import dict_row
@@ -176,26 +177,54 @@ def set_setting(key: str, value: str):
 
 
 async def subscription_status(user_id: int):
+    # The administrator is always exempt from forced subscription.
+    if user_id == ADMIN_USER_ID:
+        return {"enabled": False, "subscribed": True, "url": "", "channel": ""}
+
     enabled = get_setting("force_sub_enabled", "0") == "1"
     channel_id = get_setting("force_sub_channel_id", "")
     channel_url = get_setting("force_sub_url", "")
-    if not enabled or not channel_id:
-        return {"enabled": False, "subscribed": True, "url": channel_url}
+
+    if not enabled:
+        return {"enabled": False, "subscribed": True, "url": channel_url, "channel": channel_id}
+
+    if not channel_id:
+        raise HTTPException(503, {
+            "code": "subscription_config_error",
+            "message": "الاشتراك الإجباري مفعّل لكن لم يتم ضبط القناة."
+        })
+
+    if not BOT_TOKEN:
+        raise HTTPException(503, {
+            "code": "subscription_config_error",
+            "message": "BOT_TOKEN غير مضبوط على الخادم."
+        })
+
     try:
         member = await Bot(BOT_TOKEN).get_chat_member(chat_id=channel_id, user_id=user_id)
-        subscribed = member.status in {"creator", "administrator", "member"} or (
-            member.status == "restricted" and bool(getattr(member, "is_member", False))
-        )
     except Exception as exc:
-        print(f"Subscription check failed: {exc}")
-        subscribed = False
-    return {"enabled": True, "subscribed": subscribed, "url": channel_url}
+        print(f"Subscription check failed for {user_id} / {channel_id}: {exc}", flush=True)
+        raise HTTPException(503, {
+            "code": "subscription_config_error",
+            "message": "تعذر التحقق من اشتراك القناة. تأكد أن البوت مشرف في القناة وأن رابط القناة صحيح."
+        })
+
+    subscribed = member.status in {"creator", "administrator", "member"} or (
+        member.status == "restricted" and bool(getattr(member, "is_member", False))
+    )
+    return {"enabled": True, "subscribed": subscribed, "url": channel_url, "channel": channel_id}
 
 
 async def enforce_subscription(user_id: int):
+    if user_id == ADMIN_USER_ID:
+        return {"enabled": False, "subscribed": True, "url": "", "channel": ""}
     result = await subscription_status(user_id)
     if not result["subscribed"]:
-        raise HTTPException(403, {"code": "subscription_required", "message": "يجب الاشتراك في القناة أولاً", "channel_url": result["url"]})
+        raise HTTPException(403, {
+            "code": "subscription_required",
+            "message": "يجب الاشتراك في القناة أولاً",
+            "channel_url": result["url"]
+        })
     return result
 
 
@@ -454,36 +483,127 @@ async def telegram_webhook(request: Request):
 
 
 def channel_username_from_url(channel_url: str):
-    parsed = urlparse(channel_url.strip())
-    if parsed.scheme != "https" or parsed.netloc.lower() not in {"t.me", "www.t.me"}:
-        raise HTTPException(400, "أدخل رابط قناة Telegram صحيحًا مثل https://t.me/channel_name")
-    path = parsed.path.strip("/")
-    if not path or path.startswith(("+", "joinchat/")):
-        raise HTTPException(400, "استخدم رابط قناة عامة مثل https://t.me/channel_name؛ روابط الدعوة الخاصة تحتاج معرّف القناة")
-    username = path.split("/")[0]
+    """Normalize a public Telegram channel URL to @username."""
+    value = channel_url.strip()
+
+    if value.startswith("@"):
+        username = value[1:]
+    else:
+        parsed = urlparse(value)
+        if parsed.scheme != "https" or parsed.netloc.lower() not in {
+            "t.me", "www.t.me", "telegram.me", "www.telegram.me"
+        }:
+            raise HTTPException(400, "أدخل رابط قناة عامة صحيحًا مثل https://t.me/channel_name")
+
+        path = parsed.path.strip("/")
+        if not path or path.startswith(("+", "joinchat/")):
+            raise HTTPException(400, "استخدم رابط قناة عامة مثل https://t.me/channel_name")
+        username = path.split("/")[0]
+
     if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{3,31}", username):
-        raise HTTPException(400, "رابط القناة غير صالح")
+        raise HTTPException(400, "اسم قناة Telegram غير صالح")
+
     return "@" + username
+
+
+async def validate_channel_for_bot(channel_id: str):
+    """Verify that the bot can inspect channel membership."""
+    if not BOT_TOKEN:
+        raise HTTPException(503, "BOT_TOKEN غير مضبوط على الخادم")
+
+    try:
+        bot = Bot(BOT_TOKEN)
+        chat = await bot.get_chat(chat_id=channel_id)
+
+        if getattr(chat, "type", None) != "channel":
+            raise HTTPException(400, "الرابط يجب أن يكون لقناة Telegram وليس مجموعة أو محادثة")
+
+        bot_info = await bot.get_me()
+        bot_member = await bot.get_chat_member(chat_id=channel_id, user_id=bot_info.id)
+
+        if bot_member.status not in {"administrator", "creator"}:
+            raise HTTPException(
+                400,
+                "يجب أن يكون البوت مشرفًا في القناة حتى يعمل التحقق من الاشتراك"
+            )
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        print(f"Channel validation failed for {channel_id}: {exc}", flush=True)
+        raise HTTPException(
+            400,
+            "تعذر الوصول إلى القناة. تأكد من الرابط وأن البوت مشرف فيها."
+        )
 
 
 @app.post("/admin/subscription")
 async def admin_subscription(
-    initData: str = Form(...), enabled: str = Form("0"), channel_url: str = Form("")
+    initData: str = Form(...),
+    enabled: str = Form("0"),
+    channel_url: str = Form("")
 ):
     require_admin(initData)
+
     channel_url = channel_url.strip()
-    channel_id = channel_username_from_url(channel_url) if channel_url else ""
-    if enabled == "1" and not channel_url:
-        raise HTTPException(400, "أدخل رابط القناة أولاً")
-    set_setting("force_sub_enabled", "1" if enabled == "1" else "0")
+    enabled_bool = enabled == "1"
+
+    if not channel_url:
+        if enabled_bool:
+            raise HTTPException(400, "أدخل رابط القناة أولاً")
+
+        set_setting("force_sub_enabled", "0")
+        set_setting("force_sub_channel_id", "")
+        set_setting("force_sub_url", "")
+
+        return {
+            "success": True,
+            "enabled": False,
+            "channel_url": "",
+            "channel": ""
+        }
+
+    channel_id = channel_username_from_url(channel_url)
+
+    # Do not enable a broken configuration.
+    if enabled_bool:
+        await validate_channel_for_bot(channel_id)
+
+    set_setting("force_sub_enabled", "1" if enabled_bool else "0")
     set_setting("force_sub_channel_id", channel_id)
     set_setting("force_sub_url", channel_url)
-    return {"success": True, "enabled": enabled == "1", "channel_url": channel_url, "channel": channel_id}
+
+    return {
+        "success": True,
+        "enabled": enabled_bool,
+        "channel_url": channel_url,
+        "channel": channel_id
+    }
+
+
+@app.post("/admin/subscription/status")
+async def admin_subscription_status(initData: str = Form(...)):
+    require_admin(initData)
+
+    return {
+        "enabled": get_setting("force_sub_enabled", "0") == "1",
+        "channel_url": get_setting("force_sub_url", ""),
+        "channel": get_setting("force_sub_channel_id", "")
+    }
 
 
 @app.post("/subscription/status")
 async def subscription_status_endpoint(initData: str = Form(...)):
     user = current_user(initData)
+
+    if user["id"] == ADMIN_USER_ID:
+        return {
+            "enabled": False,
+            "subscribed": True,
+            "url": "",
+            "channel": ""
+        }
+
     return await subscription_status(user["id"])
 
 

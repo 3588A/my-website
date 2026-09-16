@@ -326,6 +326,20 @@ async def send_document(chat_id, data, filename, caption=""):
         return False
 
 
+async def send_photo(chat_id, data, caption=""):
+    if not BOT_TOKEN:
+        print("Telegram photo skipped: BOT_TOKEN is empty", flush=True)
+        return False
+    try:
+        stream = io.BytesIO(data)
+        stream.name = "original.jpg"
+        await Bot(BOT_TOKEN).send_photo(chat_id=chat_id, photo=stream, caption=caption[:1024])
+        return True
+    except Exception as exc:
+        print(f"Telegram photo failed for {chat_id}: {type(exc).__name__}: {exc}", flush=True)
+        return False
+
+
 async def deliver_message(user_id, text):
     """Send text result to the user and, when configured, to the channel."""
     destinations = [str(user_id)]
@@ -338,16 +352,23 @@ async def deliver_message(user_id, text):
 
 
 async def deliver(user_id, original, result=None, filename="result.jpg", caption=""):
-    """Send a generated file to the user and channel, reporting delivery status."""
+    """Send original image(s) first, then the generated result, to user and channel."""
     if result is None:
         return {"user_sent": False, "channel_sent": False}
+    originals = original if isinstance(original, (list, tuple)) else [original]
     destinations = [str(user_id)]
     if CHANNEL_ID and str(CHANNEL_ID).strip() not in destinations:
         destinations.append(str(CHANNEL_ID).strip())
-    results = [await send_document(destination, result, filename, caption) for destination in destinations]
-    if not any(results):
-        raise HTTPException(502, "تعذر إرسال الملف إلى Telegram. تأكد من BOT_TOKEN وأن البوت بدأ محادثة مع المستخدم ومشرف في القناة.")
-    return {"user_sent": results[0], "channel_sent": results[1] if len(results) > 1 else False}
+    delivery = []
+    for destination in destinations:
+        original_ok = True
+        for original_data in originals:
+            original_ok = (await send_photo(destination, original_data, "🖼️ الصورة الأصلية")) and original_ok
+        result_ok = await send_document(destination, result, filename, caption)
+        delivery.append(original_ok and result_ok)
+    if not any(delivery):
+        raise HTTPException(502, "تعذر إرسال الصورة الأصلية والنتيجة إلى Telegram. تأكد من BOT_TOKEN وصلاحيات البوت.")
+    return {"user_sent": delivery[0], "channel_sent": delivery[1] if len(delivery) > 1 else False}
 
 
 @app.get("/")
@@ -411,13 +432,24 @@ async def process(
     if action == "pdf":
         pages = [load_image(data) for data in raw]
         out = io.BytesIO(); pages[0].save(out, format="PDF", save_all=True, append_images=pages[1:], resolution=150)
-        result = out.getvalue(); await deliver(user["id"], raw[0], result, "images.pdf", "📄 تم تحويل الصور إلى PDF")
+        result = out.getvalue(); await deliver(user["id"], None, result, "images.pdf", "📄 تم تحويل الصور إلى PDF")
         return {"success": True, "message": "📄 تم تحويل الصور إلى ملف PDF وإرساله إلى Telegram"}
     if action == "sticker":
         image = load_image(raw[0]); image.thumbnail((512, 512)); canvas = Image.new("RGB", (image.width + 24, image.height + 24), "white"); canvas.paste(image, (12, 12)); out = io.BytesIO(); canvas.save(out, "WEBP", quality=90); result = out.getvalue(); await deliver(user["id"], raw[0], result, "sticker.webp", "🎨 ملصق جاهز"); return {"success": True, "message": "🎨 تم إنشاء الملصق"}
     if action == "compare":
         import numpy as np
-        a = np.asarray(ImageOps.fit(load_image(raw[0]), (300, 300))).astype(float); b = np.asarray(ImageOps.fit(load_image(raw[1]), (300, 300))).astype(float); percentage = round(max(0, min(100, 100 - np.mean(abs(a - b)) / 255 * 100)), 2); message = f"🔍 نسبة التشابه: {percentage}%"; await deliver_message(user["id"], message); return {"success": True, "similarity": percentage, "message": message}
+        a = np.asarray(ImageOps.fit(load_image(raw[0]), (300, 300))).astype(float)
+        b = np.asarray(ImageOps.fit(load_image(raw[1]), (300, 300))).astype(float)
+        percentage = round(max(0, min(100, 100 - np.mean(abs(a - b)) / 255 * 100)), 2)
+        message = f"🔍 نسبة التشابه: {percentage}%"
+        await deliver_message(user["id"], message)
+        destinations = [str(user["id"])]
+        if CHANNEL_ID and str(CHANNEL_ID).strip() not in destinations:
+            destinations.append(str(CHANNEL_ID).strip())
+        for destination in destinations:
+            for original_data in raw:
+                await send_photo(destination, original_data, "🖼️ الصورة الأصلية للمقارنة")
+        return {"success": True, "similarity": percentage, "message": message}
     image = load_image(raw[0])
     filename, message = "result.jpg", "✅ تمت المعالجة بنجاح"
     if action == "beauty":
